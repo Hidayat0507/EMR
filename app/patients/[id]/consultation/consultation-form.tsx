@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -8,19 +9,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
-import { patients } from "@/lib/data";
-import PrescriptionForm from "@/components/prescription-form";
+import { Patient, getPatientById, Prescription, createConsultation } from "@/lib/models";
+import PrescriptionForm from "./prescription-form";
+import { PatientCard } from "@/components/patients/patient-card";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { useState } from "react";
+import { useToast } from "@/components/ui/use-toast";
+import { useRouter } from "next/navigation";
 
 // Common procedures list
 const commonProcedures = [
@@ -32,12 +36,96 @@ const commonProcedures = [
 ];
 
 export default function ConsultationForm({ patientId }: { patientId: string }) {
-  const patient = patients.find(p => p.id === patientId);
+  const [patient, setPatient] = useState<Patient | null>(null);
+  const [loading, setLoading] = useState(true);
   const [isTreatmentOpen, setIsTreatmentOpen] = useState(true);
   const [isPrescriptionOpen, setIsPrescriptionOpen] = useState(true);
+  
+  // Form state
+  const [chiefComplaint, setChiefComplaint] = useState("");
+  const [diagnosis, setDiagnosis] = useState("");
+  const [selectedProcedures, setSelectedProcedures] = useState<string[]>([]);
+  const [additionalNotes, setAdditionalNotes] = useState("");
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+
+  const { toast } = useToast();
+  const router = useRouter();
+
+  useEffect(() => {
+    async function loadPatient() {
+      try {
+        const data = await getPatientById(patientId);
+        setPatient(data);
+      } catch (error) {
+        console.error('Error loading patient:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadPatient();
+  }, [patientId]);
+
+  const handleProcedureToggle = (procedureId: string) => {
+    setSelectedProcedures(prev => 
+      prev.includes(procedureId)
+        ? prev.filter(id => id !== procedureId)
+        : [...prev, procedureId]
+    );
+  };
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    // Validate form
+    if (!chiefComplaint || !diagnosis) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in Chief Complaint and Diagnosis",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const consultationData = {
+        patientId,
+        date: new Date(),
+        chiefComplaint,
+        diagnosis,
+        procedures: selectedProcedures,
+        notes: additionalNotes,
+        prescriptions: prescriptions
+      };
+
+      const consultationId = await createConsultation(consultationData);
+
+      if (consultationId) {
+        toast({
+          title: "Consultation Saved",
+          description: "Consultation has been successfully recorded.",
+        });
+        
+        // Redirect to patient profile or consultation details
+        router.push(`/patients/${patientId}`);
+      } else {
+        throw new Error('Failed to save consultation');
+      }
+    } catch (error) {
+      console.error('Error saving consultation:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save consultation. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  if (loading) {
+    return <div className="p-6">Loading patient data...</div>;
+  }
 
   if (!patient) {
-    return <div>Patient not found</div>;
+    return <div className="p-6">Patient not found</div>;
   }
 
   return (
@@ -54,82 +142,21 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
 
       <div className="space-y-6">
         {/* Patient Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle>New Consultation</CardTitle>
-            <CardDescription>
-              Patient: {patient.fullName} ({patient.nric})
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Age:</span>{" "}
-                {new Date().getFullYear() - new Date(patient.dateOfBirth).getFullYear()}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Gender:</span>{" "}
-                {patient.gender}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Last Visit:</span>{" "}
-                {patient.lastVisit}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <PatientCard patient={patient} />
 
         {/* Consultation Form */}
-        <form className="space-y-6">
-          {/* Consultation Notes */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Consultation Notes</CardTitle>
-              <CardDescription>
-                Document the consultation details including chief complaint, examination findings, and treatment plan
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Textarea
-                  placeholder="Enter consultation notes..."
-                  className="min-h-[300px] font-mono"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Diagnosis */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Diagnosis</CardTitle>
-              <CardDescription>
-                Enter the final diagnosis and any differential diagnoses
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Textarea
-                  placeholder="Enter diagnosis..."
-                  className="min-h-[80px] font-mono"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Treatment */}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Treatment Section */}
           <Collapsible open={isTreatmentOpen} onOpenChange={setIsTreatmentOpen}>
-            <Card>
-              <CardHeader>
+            <Card className="border-none shadow-none">
+              <CardHeader className="p-0">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Treatment</CardTitle>
-                    <CardDescription>
-                      Select the procedures performed during this consultation
-                    </CardDescription>
+                  <div className="space-y-1.5">
+                    <CardTitle className="text-2xl">Consultation</CardTitle>
+                    <CardDescription className="text-base">Record patient&apos;s condition and procedures</CardDescription>
                   </div>
                   <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" className="hover:bg-muted/50">
                       {isTreatmentOpen ? (
                         <ChevronUp className="h-4 w-4" />
                       ) : (
@@ -140,21 +167,53 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
                 </div>
               </CardHeader>
               <CollapsibleContent>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      {commonProcedures.map((procedure) => (
-                        <div key={procedure.id} className="flex items-center space-x-2">
-                          <Checkbox id={procedure.id} />
-                          <Label htmlFor={procedure.id}>{procedure.label}</Label>
-                        </div>
-                      ))}
+                <CardContent className="p-0 pt-6">
+                  <div className="space-y-6">
+                    <div>
+                      <Label>Chief Complaint</Label>
+                      <Textarea 
+                        placeholder="Patient's main symptoms or concerns..." 
+                        className="mt-1.5 min-h-[150px]"
+                        value={chiefComplaint}
+                        onChange={(e) => setChiefComplaint(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label>Diagnosis</Label>
+                      <Input 
+                        placeholder="Clinical diagnosis..." 
+                        className="mt-1.5"
+                        value={diagnosis}
+                        onChange={(e) => setDiagnosis(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Common Procedures</Label>
+                      <div className="grid grid-cols-2 gap-4">
+                        {commonProcedures.map((procedure) => (
+                          <div key={procedure.id} className="flex items-center space-x-2">
+                            <Checkbox 
+                              id={procedure.id}
+                              checked={selectedProcedures.includes(procedure.id)}
+                              onCheckedChange={() => handleProcedureToggle(procedure.id)}
+                            />
+                            <label 
+                              htmlFor={procedure.id} 
+                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                            >
+                              {procedure.label}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label>Additional Procedures / Notes</Label>
                       <Textarea 
                         placeholder="Describe any additional procedures or specific details..."
                         className="min-h-[100px]"
+                        value={additionalNotes}
+                        onChange={(e) => setAdditionalNotes(e.target.value)}
                       />
                     </div>
                   </div>
@@ -165,15 +224,15 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
 
           {/* Prescriptions */}
           <Collapsible open={isPrescriptionOpen} onOpenChange={setIsPrescriptionOpen}>
-            <Card>
-              <CardHeader>
+            <Card className="border-none shadow-none">
+              <CardHeader className="p-0">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Prescriptions</CardTitle>
-                    <CardDescription>Add medications for the patient</CardDescription>
+                  <div className="space-y-1.5">
+                    <CardTitle className="text-2xl">Prescriptions</CardTitle>
+                    <CardDescription className="text-base">Add medications for the patient</CardDescription>
                   </div>
                   <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" className="hover:bg-muted/50">
                       {isPrescriptionOpen ? (
                         <ChevronUp className="h-4 w-4" />
                       ) : (
@@ -184,8 +243,11 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
                 </div>
               </CardHeader>
               <CollapsibleContent>
-                <CardContent>
-                  <PrescriptionForm />
+                <CardContent className="p-0 pt-6">
+                  <PrescriptionForm 
+                    onPrescriptionsChange={setPrescriptions}
+                    initialPrescriptions={prescriptions}
+                  />
                 </CardContent>
               </CollapsibleContent>
             </Card>

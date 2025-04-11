@@ -12,36 +12,54 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { createPatient, Patient } from "@/lib/models";
+import { useRouter } from "next/navigation";
+import React from "react";
 
 const patientFormSchema = z.object({
   fullName: z.string().min(2, "Name must be at least 2 characters"),
-  nric: z.string().regex(/^[STFG]\d{7}[A-Z]$/, "Invalid NRIC format"),
-  dateOfBirth: z.string(),
+  nric: z.string().regex(/^\d{6}-\d{2}-\d{4}$/, "Invalid NRIC format (e.g., 880705-56-5975)"),
+  dateOfBirth: z.string().optional(),
   gender: z.enum(["male", "female", "other"]),
-  email: z.string().email("Invalid email address"),
+  email: z.string().email("Invalid email address").optional().or(z.literal("")),
   phone: z.string().regex(/^\+?[0-9]{8,15}$/, "Invalid phone number"),
-  address: z.string().min(5, "Address must be at least 5 characters"),
-  postalCode: z.string().regex(/^\d{6}$/, "Postal code must be 6 digits"),
+  address: z.string().optional().or(z.literal("")),
+  postalCode: z.string().regex(/^\d{5}$/, "Postal code must be 5 digits").optional().or(z.literal("")),
   emergencyContact: z.object({
-    name: z.string().min(2, "Name must be at least 2 characters"),
-    relationship: z.string().min(2, "Please specify the relationship"),
-    phone: z.string().regex(/^\+?[0-9]{8,15}$/, "Invalid phone number"),
-  }),
+    name: z.string().optional().or(z.literal("")),
+    relationship: z.string().optional().or(z.literal("")),
+    phone: z.string().regex(/^\+?[0-9]{8,15}$/, "Invalid phone number").optional().or(z.literal("")),
+  }).optional().default({}),
   medicalHistory: z.object({
-    allergies: z.string(),
-    chronicConditions: z.string(),
-    currentMedications: z.string(),
-  }),
+    allergies: z.string().optional().or(z.literal("")),
+    chronicConditions: z.string().optional().or(z.literal("")),
+    currentMedications: z.string().optional().or(z.literal("")),
+  }).optional().default({}),
 });
 
 type PatientFormValues = z.infer<typeof patientFormSchema>;
 
+const RequiredLabel = ({ children }: { children: React.ReactNode }) => (
+  <FormLabel className="after:content-[&quot;*&quot;] after:ml-0.5 after:text-red-500">
+    {children}
+  </FormLabel>
+);
+
 export default function NewPatient() {
   const { toast } = useToast();
+  const router = useRouter();
   
   const form = useForm<PatientFormValues>({
     resolver: zodResolver(patientFormSchema),
     defaultValues: {
+      fullName: "",
+      nric: "",
+      dateOfBirth: "",
+      gender: undefined,
+      email: "",
+      phone: "",
+      address: "",
+      postalCode: "",
       medicalHistory: {
         allergies: "",
         chronicConditions: "",
@@ -55,18 +73,123 @@ export default function NewPatient() {
     },
   });
 
+  // Function to format NRIC input with dashes
+  const formatNRIC = (value: string) => {
+    const numbers = value.replace(/[^0-9]/g, '');
+    if (numbers.length <= 6) {
+      return numbers;
+    } else if (numbers.length <= 8) {
+      return `${numbers.slice(0, 6)}-${numbers.slice(6)}`;
+    } else {
+      return `${numbers.slice(0, 6)}-${numbers.slice(6, 8)}-${numbers.slice(8, 12)}`;
+    }
+  };
+
+  // Function to convert NRIC date to ISO format
+  const getNRICDate = (nric: string): string => {
+    const birthDate = nric.slice(0, 6); // Get first 6 digits
+    const year = parseInt(birthDate.slice(0, 2));
+    const month = parseInt(birthDate.slice(2, 4));
+    const day = parseInt(birthDate.slice(4, 6));
+    
+    // Determine century (assuming 19xx for years 00-29, 20xx for years 30-99)
+    const fullYear = year + (year >= 30 ? 1900 : 2000);
+    
+    // Format the date manually to avoid timezone issues
+    const formattedMonth = month.toString().padStart(2, '0');
+    const formattedDay = day.toString().padStart(2, '0');
+    
+    return `${fullYear}-${formattedMonth}-${formattedDay}`;
+  };
+
+  // Watch NRIC field for changes
+  const nric = form.watch('nric');
+
+  // Update date of birth when NRIC changes
+  React.useEffect(() => {
+    if (nric && nric.length >= 6) {
+      const birthDate = getNRICDate(nric.replace(/[^0-9]/g, ''));
+      form.setValue('dateOfBirth', birthDate);
+    }
+  }, [nric, form]);
+
   async function onSubmit(data: PatientFormValues) {
+    console.log('Form submitted with data:', data);
     try {
-      // Here we'll add the Firebase integration later
-      console.log(data);
+      // Convert dateOfBirth string to Date object, handle potential empty string
+      let dateOfBirthObj: Date | undefined;
+      if (data.dateOfBirth) {
+        try {
+          dateOfBirthObj = new Date(data.dateOfBirth);
+          // Optional: Add check for invalid date if necessary
+          if (isNaN(dateOfBirthObj.getTime())) {
+             dateOfBirthObj = undefined; // Or handle error
+             console.error("Invalid dateOfBirth string:", data.dateOfBirth);
+             // Optionally show a toast error to the user here
+          }
+        } catch (dateError) {
+          console.error("Error parsing dateOfBirth:", dateError);
+          dateOfBirthObj = undefined; // Or handle error
+        }
+      } else {
+        // Handle case where dateOfBirth might be intentionally empty
+        // Depending on requirements, set to undefined, null, or a default date
+        dateOfBirthObj = undefined; 
+      }
+
+      // Clean the data 
+      const cleanData = {
+        fullName: data.fullName,
+        dateOfBirth: dateOfBirthObj, // Date | undefined
+        gender: data.gender,
+        contact: data.phone,
+        phone: data.phone,
+        email: data.email || "",
+        address: data.address || "",
+        postalCode: data.postalCode || "",
+        nric: data.nric,
+        emergencyContact: {
+          name: data.emergencyContact?.name || "",
+          relationship: data.emergencyContact?.relationship || "",
+          phone: data.emergencyContact?.phone || "",
+        },
+        medicalHistory: {
+          // Split comma-separated strings into arrays, trim whitespace
+          allergies: data.medicalHistory?.allergies?.split(',').map(s => s.trim()).filter(Boolean) || [],
+          // Use 'conditions' field from schema, not chronicConditions
+          conditions: data.medicalHistory?.chronicConditions?.split(',').map(s => s.trim()).filter(Boolean) || [],
+          // Use 'medications' field from schema, not currentMedications
+          medications: data.medicalHistory?.currentMedications?.split(',').map(s => s.trim()).filter(Boolean) || [],
+        }
+      };
+
+      // Check if dateOfBirthObj is required and valid
+      if (cleanData.dateOfBirth === undefined) {
+         console.error("Date of Birth is required or invalid.");
+         toast({ title: "Error", description: "Invalid or missing Date of Birth.", variant: "destructive" });
+         return; // Stop submission if undefined
+      }
+
+      console.log('Cleaned data for submission:', cleanData);
+      
+      // Save to Firebase
+      // Type assertion is safe here because we returned early if dateOfBirth was undefined.
+      // We assert that the prepared cleanData matches the expected input type for createPatient.
+      const patientId = await createPatient(cleanData as Omit<Patient, 'id' | 'createdAt' | 'updatedAt'>); 
+      console.log('Patient created with ID:', patientId);
+
       toast({
         title: "Success",
-        description: "Patient information has been saved.",
+        description: "Patient registered successfully",
       });
+
+      // Redirect to the patient's profile
+      router.push(`/patients/${patientId}`);
     } catch (error) {
+      console.error('Error registering patient:', error);
       toast({
         title: "Error",
-        description: "Failed to save patient information.",
+        description: "Failed to register patient. Please try again.",
         variant: "destructive",
       });
     }
@@ -84,11 +207,16 @@ export default function NewPatient() {
       <Card>
         <CardHeader>
           <CardTitle>New Patient Registration</CardTitle>
-          <CardDescription>Enter the patient's personal and medical information</CardDescription>
+          <CardDescription>Enter the patient&#39;s personal and medical information</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            <form 
+              onSubmit={form.handleSubmit(onSubmit, (errors) => {
+                console.log('Form validation errors:', errors);
+              })} 
+              className="space-y-8"
+            >
               {/* Personal Information */}
               <div className="space-y-6">
                 <h3 className="text-lg font-medium">Personal Information</h3>
@@ -98,9 +226,9 @@ export default function NewPatient() {
                     name="fullName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Full Name</FormLabel>
+                        <RequiredLabel>Full Name</RequiredLabel>
                         <FormControl>
-                          <Input placeholder="John Doe" {...field} />
+                          <Input placeholder="Enter patient&apos;s full name" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -111,11 +239,19 @@ export default function NewPatient() {
                     name="nric"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>NRIC</FormLabel>
+                        <RequiredLabel>NRIC</RequiredLabel>
                         <FormControl>
-                          <Input placeholder="S1234567A" {...field} />
+                          <Input 
+                            {...field}
+                            onChange={(e) => {
+                              const formatted = formatNRIC(e.target.value);
+                              field.onChange(formatted);
+                            }}
+                          />
                         </FormControl>
-                        <FormDescription>Format: S1234567A</FormDescription>
+                        <FormDescription>
+                          Malaysian NRIC format: YYMMDD-SS-NNNN
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -127,8 +263,16 @@ export default function NewPatient() {
                       <FormItem>
                         <FormLabel>Date of Birth</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} />
+                          <Input 
+                            type="date" 
+                            {...field}
+                            disabled 
+                            className="bg-muted"
+                          />
                         </FormControl>
+                        <FormDescription>
+                          Auto-populated from NRIC
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -138,8 +282,11 @@ export default function NewPatient() {
                     name="gender"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Gender</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <RequiredLabel>Gender</RequiredLabel>
+                        <Select 
+                          onValueChange={field.onChange} 
+                          value={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select gender" />
@@ -180,9 +327,9 @@ export default function NewPatient() {
                     name="phone"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Phone Number</FormLabel>
+                        <RequiredLabel>Contact Number</RequiredLabel>
                         <FormControl>
-                          <Input placeholder="+65 1234 5678" {...field} />
+                          <Input placeholder="Enter contact number" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -208,7 +355,7 @@ export default function NewPatient() {
                       <FormItem>
                         <FormLabel>Postal Code</FormLabel>
                         <FormControl>
-                          <Input placeholder="123456" {...field} />
+                          <Input placeholder="12345" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

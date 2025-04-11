@@ -1,0 +1,43 @@
+export const inventory = {
+  medications: [
+    {
+      id: '1',
+      name: 'Paracetamol',
+      genericName: 'Acetaminophen',
+      category: 'Analgesic',
+      dosageForm: 'Tablet',
+      strengths: ['500mg', '650mg'],
+      manufacturer: 'Generic Co',
+      stock: 500,
+      reorderLevel: 100,
+      unit: 'tablets',
+      expiryDate: '2025-12-31',
+    },
+    {
+      id: '2',
+      name: 'Amoxicillin',
+      genericName: 'Amoxicillin',
+      category: 'Antibiotic',
+      dosageForm: 'Capsule',
+      strengths: ['250mg', '500mg'],
+      manufacturer: 'Pharma Inc',
+      stock: 50,
+      reorderLevel: 100,
+      unit: 'capsules',
+      expiryDate: '2025-06-30',
+    },
+    {
+      id: '3',
+      name: 'Metformin',
+      genericName: 'Metformin Hydrochloride',
+      category: 'Antidiabetic',
+      dosageForm: 'Tablet',
+      strengths: ['500mg', '850mg', '1000mg'],
+      manufacturer: 'Diabetes Care Ltd',
+      stock: 200,
+      reorderLevel: 150,
+      unit: 'tablets',
+      expiryDate: '2024-12-31',
+    },
+  ]
+};

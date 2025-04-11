@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import * as React from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,14 +10,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -25,51 +17,115 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Search, AlertCircle } from "lucide-react";
-import { inventory } from "@/lib/data";
+import { Plus, AlertCircle, Search } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-const categories = [
-  "Analgesic",
-  "Antibiotic",
-  "Antidiabetic",
-  "Antihypertensive",
-  "ACE Inhibitor",
-  "Other",
-];
-
-const dosageForms = [
-  "Tablet",
-  "Capsule",
-  "Syrup",
-  "Injection",
-  "Cream",
-  "Ointment",
-];
+import { Input } from "@/components/ui/input";
+import { InventoryTable } from "@/components/inventory/inventory-table";
+import { AddMedicationForm } from "@/components/inventory/add-medication-form";
+import { getMedications, createMedication, updateMedication, deleteMedication, type Medication } from "@/lib/inventory";
+import { toast } from "@/components/ui/use-toast";
 
 export default function InventoryPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const [showAddDialog, setShowAddDialog] = React.useState(false);
+  const [medications, setMedications] = React.useState<Medication[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const filteredMedications = inventory.medications.filter(
-    (med) =>
-      med.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      med.genericName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      med.category.toLowerCase().includes(searchTerm.toLowerCase())
+  React.useEffect(() => {
+    loadMedications();
+  }, []);
+
+  async function loadMedications() {
+    try {
+      const data = await getMedications();
+      setMedications(data);
+      setError(null);
+    } catch (err) {
+      setError('Failed to load medications');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const lowStockItems = medications.filter(
+    (med) => med.stock <= med.minimumStock
   );
 
-  const lowStockItems = filteredMedications.filter(
-    (med) => med.stock <= med.reorderLevel
-  );
+  const handleAddMedication = async (data: Omit<Medication, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      await createMedication(data);
+      await loadMedications();
+      setShowAddDialog(false);
+    } catch (err) {
+      console.error('Failed to add medication:', err);
+      setError('Failed to add medication');
+    }
+  };
+
+  const handleEditMedication = async (id: string, data: Partial<Medication>) => {
+    try {
+      await updateMedication(id, data);
+      const updatedMedications = await getMedications();
+      setMedications(updatedMedications);
+      toast({
+        title: "Medication updated",
+        description: "The medication has been updated successfully.",
+      });
+    } catch (error) {
+      console.error('Error updating medication:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update medication. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteMedication = async (id: string) => {
+    try {
+      const success = await deleteMedication(id);
+      if (success) {
+        toast({
+          title: "Success",
+          description: "Medication deleted successfully",
+        });
+        await loadMedications();
+      } else {
+        throw new Error("Failed to delete medication");
+      }
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to delete medication",
+        variant: "destructive",
+      });
+      console.error(err);
+    }
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -94,133 +150,51 @@ export default function InventoryPage() {
                 Enter the details of the new medication to add to inventory
               </DialogDescription>
             </DialogHeader>
-            <form className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Medication Name</Label>
-                  <Input id="name" placeholder="Enter medication name" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="genericName">Generic Name</Label>
-                  <Input id="genericName" placeholder="Enter generic name" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category} value={category.toLowerCase()}>
-                          {category}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dosageForm">Dosage Form</Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select dosage form" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {dosageForms.map((form) => (
-                        <SelectItem key={form} value={form.toLowerCase()}>
-                          {form}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="stock">Initial Stock</Label>
-                  <Input id="stock" type="number" min="0" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reorderLevel">Reorder Level</Label>
-                  <Input id="reorderLevel" type="number" min="0" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="manufacturer">Manufacturer</Label>
-                  <Input id="manufacturer" placeholder="Enter manufacturer name" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="expiryDate">Expiry Date</Label>
-                  <Input id="expiryDate" type="date" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Strengths Available</Label>
-                <div className="flex gap-2">
-                  <Input placeholder="Add strength (e.g., 500mg)" />
-                  <Button type="button" variant="outline">
-                    Add
-                  </Button>
-                </div>
-              </div>
-              <div className="flex justify-end space-x-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowAddDialog(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit">Save Medication</Button>
-              </div>
-            </form>
+            <AddMedicationForm 
+              onSubmit={handleAddMedication}
+              onCancel={() => setShowAddDialog(false)}
+            />
           </DialogContent>
         </Dialog>
       </div>
 
       {/* Low Stock Alert */}
       {lowStockItems.length > 0 && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Low Stock Alert</AlertTitle>
           <AlertDescription>
-            {lowStockItems.length} items are running low and need to be reordered.
+            The following items are below minimum stock level: {lowStockItems.map(item => item.name).join(', ')}
           </AlertDescription>
         </Alert>
       )}
 
       {/* Quick Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-3 mb-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Items</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{inventory.medications.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Unique medications in stock
-            </p>
+            <div className="text-2xl font-bold">{medications.length}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{lowStockItems.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Items below reorder level
-            </p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Categories</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {new Set(inventory.medications.map((med) => med.category)).size}
+              {Array.from(new Set(medications.map(med => med.category))).length}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Different medication categories
-            </p>
           </CardContent>
         </Card>
       </div>
@@ -232,81 +206,15 @@ export default function InventoryPage() {
           <CardDescription>
             View and manage medication stock levels
           </CardDescription>
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search medications..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-          </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Form</TableHead>
-                <TableHead>Strengths</TableHead>
-                <TableHead>Stock</TableHead>
-                <TableHead>Reorder Level</TableHead>
-                <TableHead>Expiry Date</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredMedications.map((medication) => (
-                <TableRow key={medication.id}>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">{medication.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {medication.genericName}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell>{medication.category}</TableCell>
-                  <TableCell>{medication.dosageForm}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {medication.strengths.map((strength) => (
-                        <span
-                          key={strength}
-                          className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium"
-                        >
-                          {strength}
-                        </span>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
-                        medication.stock <= medication.reorderLevel
-                          ? "bg-red-50 text-red-700"
-                          : medication.stock <= medication.reorderLevel * 2
-                          ? "bg-yellow-50 text-yellow-700"
-                          : "bg-green-50 text-green-700"
-                      }`}
-                    >
-                      {medication.stock} {medication.unit}
-                    </span>
-                  </TableCell>
-                  <TableCell>{medication.reorderLevel}</TableCell>
-                  <TableCell>{medication.expiryDate}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="outline" size="sm">
-                      Update Stock
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <InventoryTable 
+            medications={medications}
+            searchTerm={searchTerm}
+            onSearchChange={handleSearchChange}
+            onEdit={handleEditMedication}
+            onDelete={handleDeleteMedication}
+          />
         </CardContent>
       </Card>
     </div>

@@ -17,15 +17,18 @@ import {
   LogOut,
   Package,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ClipboardListIcon
 } from "lucide-react";
+import { ThemeToggle } from "./theme-toggle";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Analytics", href: "/analytics", icon: Activity },
   { name: "Patients", href: "/patients", icon: Users },
   { name: "Appointments", href: "/appointments", icon: Calendar },
   { name: "Records", href: "/records", icon: FileText },
-  { name: "Analytics", href: "/analytics", icon: Activity },
+  { name: "Orders", href: "/orders", icon: ClipboardListIcon },
   { name: "Inventory", href: "/inventory", icon: Package },
 ];
 
@@ -85,6 +88,10 @@ export default function Sidebar() {
                 </Link>
               );
             })}
+            {/* Theme Toggle */}
+            <div className="px-4 py-4 border-t">
+              <ThemeToggle />
+            </div>
           </nav>
         </ScrollArea>
         <div className="border-t p-4 space-y-1">

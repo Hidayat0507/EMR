@@ -1,17 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { X } from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -19,12 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Prescription } from "@/lib/models";
 
-interface Prescription {
-  medication: string;
-  frequency: string;
-  duration: string;
-  instructions: string;
+interface PrescriptionFormProps {
+  initialPrescriptions?: Prescription[];
+  onPrescriptionsChange: (prescriptions: Prescription[]) => void;
 }
 
 const frequencies = [
@@ -43,120 +34,117 @@ const durations = [
   { value: "1m", label: "1 month" },
 ];
 
-export default function PrescriptionForm() {
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([{
-    medication: "",
-    frequency: "",
-    duration: "",
-    instructions: "",
-  }]);
+export default function PrescriptionForm({ 
+  initialPrescriptions = [],
+  onPrescriptionsChange 
+}: PrescriptionFormProps) {
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>(initialPrescriptions);
 
-  const addPrescription = () => {
+  useEffect(() => {
+    onPrescriptionsChange(prescriptions);
+  }, [prescriptions, onPrescriptionsChange]);
+
+  const handleAddPrescription = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
     setPrescriptions([
       ...prescriptions,
-      { medication: "", frequency: "", duration: "", instructions: "" },
+      { medication: { id: `temp-med-${Date.now()}`, name: "" }, frequency: "", duration: "" },
     ]);
   };
 
-  const removePrescription = (index: number) => {
-    setPrescriptions(prescriptions.filter((_, i) => i !== index));
+  const handleRemovePrescription = (indexToRemove: number) => {
+    setPrescriptions(prescriptions.filter((_, index) => index !== indexToRemove));
   };
 
-  const updatePrescription = (index: number, field: keyof Prescription, value: string) => {
+  const updatePrescription = (index: number, field: keyof Prescription | 'medication.name', value: string) => {
     setPrescriptions(
-      prescriptions.map((p, i) =>
-        i === index ? { ...p, [field]: value } : p
-      )
+      prescriptions.map((p, i) => {
+        if (i === index) {
+          if (field === 'medication.name') {
+            return { ...p, medication: { ...p.medication, name: value } };
+          } else if (field === 'frequency' || field === 'duration') {
+            return { ...p, [field]: value };
+          }
+        }
+        return p;
+      })
     );
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex justify-between items-center">
-          <div>
-            <CardTitle>Prescriptions</CardTitle>
-            <CardDescription>Add medications for the patient</CardDescription>
+    <div>
+      {prescriptions.map((prescription, index) => (
+        <div key={index} className="grid grid-cols-12 gap-2 mb-2 items-center">
+          <div className="relative col-span-5">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Type medication name..."
+              value={prescription.medication.name}
+              onChange={(e) => updatePrescription(index, 'medication.name', e.target.value)}
+            />
           </div>
-          <Button type="button" variant="outline" onClick={addPrescription}>
-            Add Medication
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {prescriptions.map((prescription, index) => (
-            <div key={index} className="relative space-y-4 p-4 border rounded-lg">
-              {prescriptions.length > 1 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2 h-6 w-6"
-                  onClick={() => removePrescription(index)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="col-span-2">
-                  <Label>Medication</Label>
-                  <Input
-                    placeholder="Medication name and strength"
-                    value={prescription.medication}
-                    onChange={(e) => updatePrescription(index, 'medication', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label>Frequency</Label>
-                  <Select
-                    value={prescription.frequency}
-                    onValueChange={(value) => updatePrescription(index, 'frequency', value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select frequency" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {frequencies.map((freq) => (
-                        <SelectItem key={freq.value} value={freq.value}>
-                          {freq.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Duration</Label>
-                  <Select
-                    value={prescription.duration}
-                    onValueChange={(value) => updatePrescription(index, 'duration', value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select duration" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {durations.map((dur) => (
-                        <SelectItem key={dur.value} value={dur.value}>
-                          {dur.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label>Instructions</Label>
-                <Input
-                  placeholder="e.g., Take with food"
-                  value={prescription.instructions}
-                  onChange={(e) => updatePrescription(index, 'instructions', e.target.value)}
-                />
-              </div>
-            </div>
-          ))}
+          <div className="col-span-3">
+            <Select
+              value={prescription.frequency}
+              onValueChange={(value) => updatePrescription(index, 'frequency', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Frequency" />
+              </SelectTrigger>
+              <SelectContent>
+                {frequencies.map((freq) => (
+                  <SelectItem key={freq.value} value={freq.value}>
+                    {freq.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="col-span-3">
+            <Select
+              value={prescription.duration}
+              onValueChange={(value) => updatePrescription(index, 'duration', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Duration" />
+              </SelectTrigger>
+              <SelectContent>
+                {durations.map((dur) => (
+                  <SelectItem key={dur.value} value={dur.value}>
+                    {dur.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="col-span-1 flex justify-end">
+            <Button 
+              variant="ghost"
+              size="icon"
+              type="button"
+              onClick={() => handleRemovePrescription(index)}
+              className="text-muted-foreground hover:text-destructive h-9 w-9"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      ))}
+      
+      <Button 
+        onClick={handleAddPrescription}
+        variant="outline" 
+        size="sm"
+        type="button"
+        className="w-full justify-start text-muted-foreground hover:text-foreground mt-2"
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Add Medication
+      </Button>
+    </div>
   );
 }

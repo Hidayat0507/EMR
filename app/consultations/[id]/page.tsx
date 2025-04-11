@@ -2,33 +2,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { consultations } from "@/lib/data";
+import { Consultation, getConsultationById } from "@/lib/models";
+import { use } from 'react';
 
-// Generate static params for all consultations
-export function generateStaticParams() {
-  const params: { id: string }[] = [];
-  
-  // Collect all consultation IDs across all patients
-  Object.values(consultations).forEach(patientConsultations => {
-    patientConsultations.forEach(consultation => {
-      params.push({ id: consultation.id });
-    });
-  });
-  
-  return params;
+// Define the props type according to Next.js App Router conventions for async Server Components
+type Props = {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
-// Find consultation across all patients
-function findConsultation(consultationId: string) {
-  for (const patientConsultations of Object.values(consultations)) {
-    const consultation = patientConsultations.find(c => c.id === consultationId);
-    if (consultation) return consultation;
-  }
-  return null;
-}
-
-export default function ConsultationDetails({ params }: { params: { id: string } }) {
-  const consultation = findConsultation(params.id);
+export default async function ConsultationDetails({ params }: Props) {
+  // Resolve params using use()
+  const resolvedParams = use(params);
+  
+  // Fetch the specific consultation using the id from the resolved params
+  const consultation: Consultation | null = await getConsultationById(resolvedParams.id);
 
   if (!consultation) {
     return <div>Consultation not found</div>;
@@ -54,7 +42,7 @@ export default function ConsultationDetails({ params }: { params: { id: string }
           <CardHeader>
             <CardTitle>Consultation Details</CardTitle>
             <CardDescription>
-              {consultation.date} - {consultation.doctor}
+              {consultation.date.toLocaleDateString()} - {consultation.doctor}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -87,9 +75,9 @@ export default function ConsultationDetails({ params }: { params: { id: string }
                   <div className="space-y-4">
                     {consultation.prescriptions.map((prescription, index) => (
                       <div key={index} className="p-4 rounded-lg border">
-                        <p className="font-medium">{prescription.medication}</p>
+                        <p className="font-medium">{prescription.medication.name}</p>
                         <p className="text-sm text-muted-foreground">
-                          {prescription.dosage} - {prescription.frequency} for {prescription.duration}
+                          {prescription.frequency} for {prescription.duration}
                         </p>
                       </div>
                     ))}

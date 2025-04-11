@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { X } from "lucide-react";
@@ -12,11 +12,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MedicationSearch } from "@/components/medication-search";
+import { Prescription } from "@/lib/models";
 
-interface Prescription {
-  medication: string;
-  frequency: string;
-  duration: string;
+interface MedicationOption {
+  value: string;
+  label: string;
 }
 
 const frequencies = [
@@ -35,30 +35,71 @@ const durations = [
   { value: "1m", label: "1 month" },
 ];
 
-export default function PrescriptionForm() {
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([{
-    medication: "",
-    frequency: "",
-    duration: "",
-  }]);
+interface PrescriptionFormProps {
+  onPrescriptionsChange?: (prescriptions: Prescription[]) => void;
+  prescriptions?: Prescription[];
+}
+
+export default function PrescriptionForm({ 
+  onPrescriptionsChange, 
+  prescriptions: initialPrescriptions 
+}: PrescriptionFormProps) {
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>(
+    initialPrescriptions?.length 
+      ? initialPrescriptions 
+      : [{
+          medication: { id: "", name: "" }, 
+          frequency: "",
+          duration: "",
+        }]
+  );
+
+  useEffect(() => {
+    if (onPrescriptionsChange) {
+      onPrescriptionsChange(prescriptions);
+    }
+  }, [prescriptions, onPrescriptionsChange]);
 
   const addPrescription = () => {
     setPrescriptions([
       ...prescriptions,
-      { medication: "", frequency: "", duration: "" },
+      { 
+        medication: { id: "", name: "" },
+        frequency: "",
+        duration: "" 
+      },
     ]);
   };
 
   const removePrescription = (index: number) => {
-    setPrescriptions(prescriptions.filter((_, i) => i !== index));
+    const newPrescriptions = prescriptions.filter((_, i) => i !== index);
+    setPrescriptions(newPrescriptions);
   };
 
-  const updatePrescription = (index: number, field: keyof Prescription, value: string) => {
-    setPrescriptions(
-      prescriptions.map((p, i) =>
-        i === index ? { ...p, [field]: value } : p
-      )
-    );
+  const updatePrescription = (
+    index: number,
+    field: keyof Omit<Prescription, 'medication'> | 'medication',
+    value: string | Prescription['medication'] 
+  ) => {
+    const newPrescriptions = prescriptions.map((p, i) => {
+      if (i === index) {
+        if (field === 'medication') {
+          if (typeof value === 'object' && value !== null && 'id' in value && 'name' in value) {
+            return { ...p, medication: value };
+          }
+          console.error("Incorrect value type for medication update:", value);
+          return p;
+        } else if (field === 'frequency' || field === 'duration') {
+          if (typeof value === 'string') {
+            return { ...p, [field]: value };
+          }
+          console.error(`Incorrect value type for ${field} update:`, value);
+          return p;
+        }
+      }
+      return p;
+    });
+    setPrescriptions(newPrescriptions);
   };
 
   return (
@@ -84,9 +125,25 @@ export default function PrescriptionForm() {
             <div className="col-span-2">
               <Label>Medication</Label>
               <MedicationSearch 
-                onSelect={(medication) => 
-                  updatePrescription(index, 'medication', medication.label)
+                selectedMedication={
+                  prescription.medication.id ? {
+                    value: prescription.medication.id,
+                    label: prescription.medication.name + (prescription.medication.strength ? ` (${prescription.medication.strength})` : '')
+                  } : null
                 }
+                onSelectMedication={(selectedOption: MedicationOption | null) => {
+                  if (selectedOption) {
+                    const nameParts = selectedOption.label.split(' (');
+                    const selectedName = nameParts[0];
+                    
+                    updatePrescription(index, 'medication', {
+                      id: selectedOption.value,
+                      name: selectedName,
+                    });
+                  } else {
+                    updatePrescription(index, 'medication', { id: "", name: "" });
+                  }
+                }}
               />
             </div>
             <div>

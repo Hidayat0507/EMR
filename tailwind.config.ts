@@ -13,6 +13,12 @@ const config: Config = {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-conic':
           'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
+        'gradient-soft-light': 'linear-gradient(135deg, hsl(210, 20%, 100%), hsl(210, 20%, 98%))',
+        'gradient-soft-primary': 'linear-gradient(135deg, hsl(221, 83%, 60%), hsl(221, 83%, 65%))',
+        'gradient-subtle-white': 'linear-gradient(135deg, hsl(210, 20%, 99%), hsl(210, 20%, 97%))',
+        'gradient-soft-blue': 'linear-gradient(135deg, hsl(210, 40%, 98%), hsl(210, 40%, 95%))',
+        'gradient-light-primary': 'linear-gradient(135deg, hsl(221.2, 83.2%, 53.3%), hsl(221.2, 83.2%, 63.3%))',
+        'gradient-soft-white': 'linear-gradient(135deg, hsl(0, 0%, 100%), hsl(210, 40%, 98%))',
       },
       borderRadius: {
         lg: 'var(--radius)',
