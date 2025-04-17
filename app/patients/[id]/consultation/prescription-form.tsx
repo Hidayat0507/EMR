@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Prescription } from "@/lib/models";
+import { MedicationSearch } from "@/components/medication-search";
 
 interface PrescriptionFormProps {
   initialPrescriptions?: Prescription[];
@@ -56,11 +57,13 @@ export default function PrescriptionForm({
     setPrescriptions(prescriptions.filter((_, index) => index !== indexToRemove));
   };
 
-  const updatePrescription = (index: number, field: keyof Prescription | 'medication.name', value: string) => {
+  const updatePrescription = (index: number, field: keyof Prescription | 'medication.name' | 'medication', value: any) => {
     setPrescriptions(
       prescriptions.map((p, i) => {
         if (i === index) {
-          if (field === 'medication.name') {
+          if (field === 'medication') {
+            return { ...p, medication: value };
+          } else if (field === 'medication.name') {
             return { ...p, medication: { ...p.medication, name: value } };
           } else if (field === 'frequency' || field === 'duration') {
             return { ...p, [field]: value };
@@ -75,13 +78,26 @@ export default function PrescriptionForm({
     <div>
       {prescriptions.map((prescription, index) => (
         <div key={index} className="grid grid-cols-12 gap-2 mb-2 items-center">
-          <div className="relative col-span-5">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-8"
-              placeholder="Type medication name..."
-              value={prescription.medication.name}
-              onChange={(e) => updatePrescription(index, 'medication.name', e.target.value)}
+          <div className="col-span-5">
+            <MedicationSearch
+              selectedMedication={
+                prescription.medication.id && prescription.medication.name
+                  ? {
+                      value: prescription.medication.id,
+                      label: prescription.medication.name
+                    }
+                  : null
+              }
+              onSelectMedication={(selected) => {
+                if (selected) {
+                  updatePrescription(index, 'medication', {
+                    id: selected.value,
+                    name: selected.label.split(' (')[0]
+                  });
+                } else {
+                  updatePrescription(index, 'medication', { id: "", name: "" });
+                }
+              }}
             />
           </div>
 

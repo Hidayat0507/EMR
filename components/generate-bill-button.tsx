@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from "@/components/ui/button";
-import { FileDown } from "lucide-react";
+import { FileDown, Download } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import {
@@ -70,21 +70,19 @@ export function GenerateBillButton({ patientData }: GenerateBillButtonProps) {
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-4xl h-[80vh]">
-        <DialogHeader>
-          <DialogTitle>Bill Preview</DialogTitle>
-          <DialogDescription>
-            Preview the bill before downloading
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex-1 w-full h-full min-h-[60vh]">
-          <PDFViewer width="100%" height="100%" className="rounded-md">
-            <BillDocument data={patientData} />
-          </PDFViewer>
-        </div>
-        <div className="flex justify-end">
-          <Button onClick={handleDownload}>
-            Download PDF
-          </Button>
+        <div className="flex flex-col h-full">
+          <div className="flex justify-between items-center mb-4">
+            <DialogTitle>Bill Preview</DialogTitle>
+            <Button onClick={handleDownload} variant="outline">
+              <Download className="w-4 h-4 mr-2" />
+              Download PDF
+            </Button>
+          </div>
+          <div className="flex-1 overflow-auto border rounded-lg">
+            <PDFViewer className="w-full h-full">
+              <BillDocument data={patientData} />
+            </PDFViewer>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

@@ -29,12 +29,12 @@ const patientFormSchema = z.object({
     name: z.string().optional().or(z.literal("")),
     relationship: z.string().optional().or(z.literal("")),
     phone: z.string().regex(/^\+?[0-9]{8,15}$/, "Invalid phone number").optional().or(z.literal("")),
-  }).optional().default({}),
+  }).optional(),
   medicalHistory: z.object({
     allergies: z.string().optional().or(z.literal("")),
     chronicConditions: z.string().optional().or(z.literal("")),
     currentMedications: z.string().optional().or(z.literal("")),
-  }).optional().default({}),
+  }).optional(),
 });
 
 type PatientFormValues = z.infer<typeof patientFormSchema>;

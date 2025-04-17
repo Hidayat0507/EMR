@@ -13,6 +13,9 @@ import {
 } from "@/components/ui/select";
 import { MedicationSearch } from "@/components/medication-search";
 import { Prescription } from "@/lib/models";
+import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
+import { parse, format } from 'date-fns';
 
 interface MedicationOption {
   value: string;
@@ -51,8 +54,14 @@ export default function PrescriptionForm({
           medication: { id: "", name: "" }, 
           frequency: "",
           duration: "",
+          expiryDate: "",
         }]
   );
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
     if (onPrescriptionsChange) {
@@ -66,7 +75,8 @@ export default function PrescriptionForm({
       { 
         medication: { id: "", name: "" },
         frequency: "",
-        duration: "" 
+        duration: "",
+        expiryDate: ""
       },
     ]);
   };
@@ -79,7 +89,7 @@ export default function PrescriptionForm({
   const updatePrescription = (
     index: number,
     field: keyof Omit<Prescription, 'medication'> | 'medication',
-    value: string | Prescription['medication'] 
+    value: string | Prescription['medication'] | Date | undefined
   ) => {
     const newPrescriptions = prescriptions.map((p, i) => {
       if (i === index) {
@@ -93,6 +103,14 @@ export default function PrescriptionForm({
           if (typeof value === 'string') {
             return { ...p, [field]: value };
           }
+        } else if (field === 'expiryDate') {
+          if (value instanceof Date) {
+            return { ...p, expiryDate: format(value, 'yyyy-MM-dd') };
+          } else if (value === undefined) {
+            return { ...p, expiryDate: "" };
+          } else if (typeof value === 'string') {
+            return { ...p, expiryDate: value };
+          }
           console.error(`Incorrect value type for ${field} update:`, value);
           return p;
         }
@@ -100,6 +118,16 @@ export default function PrescriptionForm({
       return p;
     });
     setPrescriptions(newPrescriptions);
+  };
+
+  const parseDateString = (dateString: string | undefined): Date | undefined => {
+    if (!dateString) return undefined;
+    try {
+      return parse(dateString, 'yyyy-MM-dd', new Date());
+    } catch (e) {
+      console.error("Error parsing date string:", e);
+      return undefined;
+    }
   };
 
   return (
@@ -121,7 +149,7 @@ export default function PrescriptionForm({
               <X className="h-4 w-4" />
             </Button>
           )}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="col-span-2">
               <Label>Medication</Label>
               <MedicationSearch 
@@ -181,6 +209,16 @@ export default function PrescriptionForm({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label htmlFor={`expiryDate-${index}`}>Expiry Date</Label>
+              {isMounted && (
+                <DatePicker 
+                  date={parseDateString(prescription.expiryDate)}
+                  setDate={(date) => updatePrescription(index, 'expiryDate', date)}
+                  className="w-full"
+                />
+              )}
             </div>
           </div>
         </div>

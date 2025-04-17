@@ -11,8 +11,27 @@ import {
   Shield 
 } from "lucide-react";
 
+// Define a type for the serialized patient data expected by this client component
+// Ensure ALL potential date/timestamp fields from Patient model are omitted and then added back as string | null | undefined
+export type SerializedPatient = Omit<Patient, 
+  'dateOfBirth' | 
+  'createdAt' | 
+  'lastVisit' | 
+  'upcomingAppointment' | 
+  'queueAddedAt' | 
+  'updatedAt' 
+> & { 
+  dateOfBirth?: string | null | undefined;
+  createdAt?: string | null | undefined; // Assuming createdAt might be passed/needed
+  lastVisit?: string | null | undefined; // Assuming lastVisit might be passed/needed
+  upcomingAppointment?: string | null | undefined;
+  queueAddedAt?: string | null | undefined;
+  updatedAt?: string | null | undefined;
+  // Add other date fields that are serialized and used by the card if any
+};
+
 interface PatientCardProps {
-  patient: Patient;
+  patient: SerializedPatient;
 }
 
 export function PatientCard({ patient }: PatientCardProps) {

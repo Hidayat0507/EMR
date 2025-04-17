@@ -58,7 +58,7 @@ export default function Sidebar() {
           <Button 
             variant="ghost" 
             size="sm" 
-            className="absolute -right-4 top-16 h-8 w-8 rounded-full border bg-background"
+            className="absolute -right-4 top-16 h-8 w-8 rounded-full border bg-background z-50"
             onClick={() => setIsCollapsed(!isCollapsed)}
           >
             {isCollapsed ? (
@@ -68,8 +68,8 @@ export default function Sidebar() {
             )}
           </Button>
         </div>
-        <ScrollArea className="flex-1 py-4">
-          <nav className="flex flex-1 flex-col px-2 space-y-1">
+        <ScrollArea className="flex-1">
+          <nav className="flex flex-1 flex-col p-2 gap-1">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               return (
@@ -77,55 +77,62 @@ export default function Sidebar() {
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "flex items-center space-x-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground",
+                    "flex items-center rounded-lg text-sm font-medium hover:bg-accent hover:text-accent-foreground",
                     isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-                    isCollapsed && "justify-center px-2"
+                    isCollapsed ? "justify-center w-8 h-8 p-2 mx-auto" : "px-3 py-2"
                   )}
                   title={isCollapsed ? item.name : undefined}
                 >
-                  <item.icon className="h-4 w-4" />
-                  {!isCollapsed && <span>{item.name}</span>}
+                  <item.icon className="h-4 w-4 flex-shrink-0" />
+                  {!isCollapsed && <span className="ml-2">{item.name}</span>}
                 </Link>
               );
             })}
-            {/* Theme Toggle */}
-            <div className="px-4 py-4 border-t">
-              <ThemeToggle />
-            </div>
           </nav>
         </ScrollArea>
-        <div className="border-t p-4 space-y-1">
-          {bottomNavigation.map((item) => (
-            <Link
-              key={item.name}
-              href={item.href}
+        
+        <div className="mt-auto border-t">
+          {/* Theme Toggle */}
+          <div className={cn(
+            "p-2",
+            isCollapsed ? "hidden" : "px-4"
+          )}>
+            <ThemeToggle />
+          </div>
+          
+          {/* Bottom Navigation */}
+          <div className="p-2 space-y-1">
+            {bottomNavigation.map((item) => (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  "flex items-center rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  isCollapsed ? "justify-center w-8 h-8 p-2 mx-auto" : "px-3 py-2"
+                )}
+                title={isCollapsed ? item.name : undefined}
+              >
+                <item.icon className="h-4 w-4 flex-shrink-0" />
+                {!isCollapsed && <span className="ml-2">{item.name}</span>}
+              </Link>
+            ))}
+            <Button 
+              variant="ghost" 
               className={cn(
-                "flex items-center space-x-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                isCollapsed && "justify-center px-2"
-              )}
-              title={isCollapsed ? item.name : undefined}
+                "w-full text-muted-foreground hover:text-accent-foreground", 
+                isCollapsed ? "justify-center w-8 h-8 p-2 mx-auto" : "justify-start px-3 py-2"
+              )} 
+              asChild
             >
-              <item.icon className="h-4 w-4" />
-              {!isCollapsed && <span>{item.name}</span>}
-            </Link>
-          ))}
-          <Button 
-            variant="ghost" 
-            className={cn(
-              "w-full", 
-              isCollapsed ? "justify-center px-2" : "justify-start"
-            )} 
-            asChild
-          >
-            <Link 
-              href="/logout" 
-              className="text-muted-foreground hover:text-accent-foreground"
-              title={isCollapsed ? "Logout" : undefined}
-            >
-              <LogOut className="h-4 w-4" />
-              {!isCollapsed && <span className="ml-2">Logout</span>}
-            </Link>
-          </Button>
+              <Link 
+                href="/logout" 
+                title={isCollapsed ? "Logout" : undefined}
+              >
+                <LogOut className="h-4 w-4 flex-shrink-0" />
+                {!isCollapsed && <span className="ml-2">Logout</span>}
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     </div>

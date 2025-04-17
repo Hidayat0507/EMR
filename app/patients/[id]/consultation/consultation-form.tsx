@@ -15,9 +15,11 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
-import { Patient, getPatientById, Prescription, createConsultation } from "@/lib/models";
+import { Patient, getPatientById, Prescription, ProcedureRecord, createConsultation } from "@/lib/models";
+import { updateQueueStatus } from "@/lib/actions";
+import { safeToISOString } from "@/lib/utils";
 import PrescriptionForm from "./prescription-form";
-import { PatientCard } from "@/components/patients/patient-card";
+import { PatientCard, SerializedPatient } from "@/components/patients/patient-card";
 import {
   Collapsible,
   CollapsibleContent,
@@ -28,15 +30,15 @@ import { useRouter } from "next/navigation";
 
 // Common procedures list
 const commonProcedures = [
-  { id: "toilet", label: "Toilet & Dressing" },
-  { id: "suturing", label: "Suturing" },
-  { id: "incision", label: "Incision & Drainage" },
-  { id: "injection", label: "Injection" },
-  { id: "removal", label: "Foreign Body Removal" },
+  { id: "toilet", label: "Toilet & Dressing", price: 50.00 },
+  { id: "suturing", label: "Suturing", price: 120.00 },
+  { id: "incision", label: "Incision & Drainage", price: 150.00 },
+  { id: "injection", label: "Injection", price: 30.00 },
+  { id: "removal", label: "Foreign Body Removal", price: 80.00 },
 ];
 
 export default function ConsultationForm({ patientId }: { patientId: string }) {
-  const [patient, setPatient] = useState<Patient | null>(null);
+  const [patient, setPatient] = useState<SerializedPatient | null>(null);
   const [loading, setLoading] = useState(true);
   const [isTreatmentOpen, setIsTreatmentOpen] = useState(true);
   const [isPrescriptionOpen, setIsPrescriptionOpen] = useState(true);
@@ -54,8 +56,22 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
   useEffect(() => {
     async function loadPatient() {
       try {
-        const data = await getPatientById(patientId);
-        setPatient(data);
+        const patientData = await getPatientById(patientId);
+        if (patientData) {
+          // Serialize patient data before setting state
+          const serializedPatient = {
+            ...patientData,
+            dateOfBirth: safeToISOString(patientData.dateOfBirth),
+            lastVisit: safeToISOString(patientData.lastVisit),
+            upcomingAppointment: safeToISOString(patientData.upcomingAppointment),
+            createdAt: safeToISOString(patientData.createdAt),
+            updatedAt: safeToISOString(patientData.updatedAt),
+            queueAddedAt: safeToISOString(patientData.queueAddedAt),
+          };
+          setPatient(serializedPatient);
+        } else {
+          setPatient(null);
+        }
       } catch (error) {
         console.error('Error loading patient:', error);
       } finally {
@@ -87,19 +103,31 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
     }
 
     try {
+      // Map selected procedure IDs to ProcedureRecord objects
+      const procedureRecords: ProcedureRecord[] = selectedProcedures.map(procId => {
+        const procedureInfo = commonProcedures.find(p => p.id === procId);
+        return {
+          name: procedureInfo?.label || procId, // Use label as name, fallback to ID
+          price: procedureInfo?.price // Price comes from the commonProcedures list
+        };
+      });
+
       const consultationData = {
         patientId,
-        date: new Date(),
+        date: new Date(), // Consider using server timestamp later
         chiefComplaint,
         diagnosis,
-        procedures: selectedProcedures,
+        procedures: procedureRecords, // Use the mapped array
         notes: additionalNotes,
-        prescriptions: prescriptions
+        prescriptions: prescriptions // Assuming prescriptions state already holds objects with price?
       };
 
       const consultationId = await createConsultation(consultationData);
 
       if (consultationId) {
+        // Update queue status AFTER successful consultation save
+        await updateQueueStatus(patientId, 'meds_and_bills');
+
         toast({
           title: "Consultation Saved",
           description: "Consultation has been successfully recorded.",
@@ -142,7 +170,7 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
 
       <div className="space-y-6">
         {/* Patient Summary */}
-        <PatientCard patient={patient} />
+        {patient && <PatientCard patient={patient} />}
 
         {/* Consultation Form */}
         <form onSubmit={handleSubmit} className="space-y-6">

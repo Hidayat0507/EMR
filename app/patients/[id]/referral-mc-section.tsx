@@ -115,7 +115,7 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Doctor's Name</Label>
+                      <Label>Doctor&apos;s Name</Label>
                       <Input placeholder="Enter doctor's name (if known)" />
                     </div>
                     <div className="space-y-2">

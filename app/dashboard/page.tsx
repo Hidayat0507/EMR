@@ -1,3 +1,5 @@
+"use client";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,10 +11,99 @@ import {
   Bell,
   Heart,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  MoreHorizontal,
+  RefreshCw
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Patient, getTodaysQueue } from "@/lib/models";
+import QueueTable from "@/components/queue-table";
+import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHeader, TableRow, TableHead } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { toast } from "@/components/ui/use-toast";
+import { addPatientToQueue, removePatientFromQueue } from "@/lib/actions";
 
 export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState('queue');
+  const [queue, setQueue] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadQueue = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getTodaysQueue();
+      setQueue(data);
+    } catch (err) {
+      console.error('Error loading queue:', err);
+      setError('Failed to load queue data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial load
+    loadQueue();
+
+    // Set up refresh interval (every 30 seconds)
+    const interval = setInterval(loadQueue, 30000);
+
+    // Cleanup interval on unmount
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleRefresh = async () => {
+    await loadQueue();
+    toast({
+      title: "Queue Updated",
+      description: "Patient queue has been refreshed.",
+    });
+  };
+
+  const handleStartConsultation = async (patient: Patient) => {
+    try {
+      await addPatientToQueue(patient.id);
+      toast({
+        title: "Consultation Started",
+        description: `${patient.fullName}'s consultation has been started.`,
+      });
+      // Refresh the queue
+      const data = await getTodaysQueue();
+      setQueue(data);
+    } catch (error) {
+      console.error('Error starting consultation:', error);
+      toast({
+        title: "Error",
+        description: "Failed to start consultation. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCompleteConsultation = async (patient: Patient) => {
+    try {
+      await removePatientFromQueue(patient.id);
+      toast({
+        title: "Consultation Completed",
+        description: `${patient.fullName}'s consultation has been completed.`,
+      });
+      // Refresh the queue
+      const data = await getTodaysQueue();
+      setQueue(data);
+    } catch (error) {
+      console.error('Error completing consultation:', error);
+      toast({
+        title: "Error",
+        description: "Failed to complete consultation. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <div className="flex flex-col space-y-6">
       {/* Header */}
@@ -21,10 +112,15 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">Welcome back, Dr. Smith</p>
         </div>
-        <Button>
-          <Bell className="h-4 w-4 mr-2" />
-          Notifications
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={handleRefresh}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button>
+            <Bell className="h-4 w-4 mr-2" />
+            Notifications
+          </Button>
+        </div>
       </div>
 
       {/* Stats Overview */}
@@ -43,13 +139,13 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Today's Appointments</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Today&apos;s Queue</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">12</div>
+            <div className="text-2xl font-bold">{queue.length}</div>
             <p className="text-xs text-muted-foreground">
-              Next at 10:00 AM
+              {queue.filter(p => p.queueStatus === 'waiting').length} waiting patients
             </p>
           </CardContent>
         </Card>
@@ -79,60 +175,41 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Main Content */}
-      <Tabs defaultValue="overview" className="space-y-4">
+      {/* Main Content - Simplified to only show Queue Tab */}
+      <Tabs defaultValue="queue" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="queue">Today&apos;s Queue</TabsTrigger>
+          {/* REMOVED: Overview, Appointments, Patients, Analytics TabsTrigger */}
+          {/* <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="appointments">Appointments</TabsTrigger>
           <TabsTrigger value="patients">Patients</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger> */}
         </TabsList>
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="col-span-4">
-              <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>Your latest medical activities</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center space-x-4">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Activity className="h-5 w-5 text-primary" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium">Patient Consultation</p>
-                        <p className="text-xs text-muted-foreground">30 minutes ago</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="col-span-3">
-              <CardHeader>
-                <CardTitle>Upcoming Appointments</CardTitle>
-                <CardDescription>Next 24 hours</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center space-x-4">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Clock className="h-5 w-5 text-primary" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium">John Doe</p>
-                        <p className="text-xs text-muted-foreground">10:00 AM - Follow-up</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+        <TabsContent value="queue" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Patient Queue</CardTitle>
+              <CardDescription>Patients waiting for consultation today</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="text-center py-4">Loading queue...</div>
+              ) : error ? (
+                <div className="text-center py-4 text-red-500">{error}</div>
+              ) : (
+                <QueueTable 
+                  patients={queue} 
+                  onQueueUpdate={loadQueue}
+                />
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
+        {/* REMOVED: Overview, Appointments, Patients, Analytics TabsContent */}
+        {/* <TabsContent value="overview" className="space-y-4"> ... </TabsContent> */}
+        {/* <TabsContent value="appointments"> ... </TabsContent> */}
+        {/* <TabsContent value="patients"> ... </TabsContent> */}
+        {/* <TabsContent value="analytics"> ... </TabsContent> */}
       </Tabs>
     </div>
   );

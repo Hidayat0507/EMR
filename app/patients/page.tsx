@@ -2,10 +2,15 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Clock, CheckCircle2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
-import { getPatients, type Patient } from "@/lib/models";
+import { 
+  getPatients, 
+  addPatientToQueue, 
+  removePatientFromQueue, 
+  type Patient 
+} from "@/lib/models";
 import {
   Table,
   TableBody,
@@ -29,6 +34,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function PatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -36,10 +42,12 @@ export default function PatientsPage() {
   const [stats, setStats] = useState({
     total: 0,
     new: 0,
-    followUps: 0
+    followUps: 0,
+    inQueue: 0
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     async function loadPatients() {
@@ -62,7 +70,8 @@ export default function PatientsPage() {
           followUps: data.filter((p: Patient) => {
             const lastVisit = p.lastVisit ? new Date(p.lastVisit) : null;
             return lastVisit && lastVisit >= weekStart;
-          }).length
+          }).length,
+          inQueue: data.filter((p: Patient) => p.queueStatus === 'waiting').length
         });
       } catch (err) {
         console.error('Error loading patients:', err);
@@ -74,6 +83,44 @@ export default function PatientsPage() {
 
     loadPatients();
   }, []);
+
+  const handleAddToQueue = async (patient: Patient) => {
+    try {
+      await addPatientToQueue(patient.id);
+      toast({
+        title: "Added to Queue",
+        description: `${patient.fullName} has been added to the queue.`,
+      });
+      // Refresh the page to update the queue status
+      window.location.reload();
+    } catch (error) {
+      console.error('Error adding to queue:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add patient to queue. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRemoveFromQueue = async (patient: Patient) => {
+    try {
+      await removePatientFromQueue(patient.id);
+      toast({
+        title: "Removed from Queue",
+        description: `${patient.fullName} has been removed from the queue.`,
+      });
+      // Refresh the page to update the queue status
+      window.location.reload();
+    } catch (error) {
+      console.error('Error removing from queue:', error);
+      toast({
+        title: "Error",
+        description: "Failed to remove patient from queue. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
 
   const filteredPatients = useMemo(() => {
     if (!searchQuery) {
@@ -106,10 +153,11 @@ export default function PatientsPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total Patients</CardTitle>
+            <UserRound className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.total}</div>
@@ -132,6 +180,16 @@ export default function PatientsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.followUps}</div>
             <p className="text-xs text-muted-foreground">This week</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">In Queue</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.inQueue}</div>
+            <p className="text-xs text-muted-foreground">Waiting for consultation</p>
           </CardContent>
         </Card>
       </div>
@@ -191,28 +249,48 @@ export default function PatientsPage() {
                             : 'No visits'}
                         </TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
-                            patient.lastVisit
-                              ? "bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20"
-                              : "bg-yellow-50 text-yellow-800 ring-1 ring-inset ring-yellow-600/20"
-                          }`}>
-                            {patient.lastVisit ? "Active" : "New"}
-                          </span>
+                          {patient.queueStatus === 'waiting' ? (
+                            <Badge variant="secondary" className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              In Queue
+                            </Badge>
+                          ) : patient.lastVisit ? (
+                            <Badge variant="outline">Active</Badge>
+                          ) : (
+                            <Badge variant="outline">New</Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="outline" size="sm" asChild>
-                             <Link href={`/patients/${patient.id}`}>View</Link>
-                          </Button>
-                          <Button variant="outline" size="sm" asChild className="ml-2">
-                            <Link href={`/patients/${patient.id}/consultation`}>New Consultation</Link>
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/patients/${patient.id}`}>
+                                  View Details
+                                </Link>
+                              </DropdownMenuItem>
+                              {patient.queueStatus === 'waiting' ? (
+                                <DropdownMenuItem onClick={() => handleRemoveFromQueue(patient)}>
+                                  Remove from Queue
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onClick={() => handleAddToQueue(patient)}>
+                                  Add to Queue
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-24 text-center">
-                        No patients found matching your search.
+                      <TableCell colSpan={7} className="text-center py-4">
+                        No patients found
                       </TableCell>
                     </TableRow>
                   )}

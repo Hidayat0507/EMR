@@ -61,18 +61,20 @@ export default function AppointmentsPage() {
             <CardTitle>Calendar</CardTitle>
             <CardDescription>View and manage appointments</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Calendar
-              mode="single"
-              className="rounded-md border"
-            />
+          <CardContent className="flex justify-center">
+            <div className="w-full max-w-sm mx-auto">
+              <Calendar
+                mode="single"
+                selected={new Date()}
+              />
+            </div>
           </CardContent>
         </Card>
 
         {/* Today's Schedule */}
         <Card className="lg:col-span-4">
           <CardHeader>
-            <CardTitle>Today's Schedule</CardTitle>
+            <CardTitle>Today&apos;s Schedule</CardTitle>
             <CardDescription>Upcoming appointments for today</CardDescription>
           </CardHeader>
           <CardContent>

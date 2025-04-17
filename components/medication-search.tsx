@@ -55,7 +55,7 @@ export function MedicationSearch({ selectedMedication, onSelectMedication }: Med
 
   const options: MedicationOption[] = medications.map(med => ({
     value: med.id,
-    label: `${med.name} (${med.strengths?.join(', ') || 'N/A'})`
+    label: med.dosageForm ? `${med.name} (${med.dosageForm})` : med.name
   }));
 
   return (
@@ -88,7 +88,7 @@ export function MedicationSearch({ selectedMedication, onSelectMedication }: Med
                       key={option.value}
                       value={option.label}
                       onSelect={() => {
-                        onSelectMedication(option.value === selectedMedication?.value ? null : option);
+                        onSelectMedication(option);
                         setOpen(false);
                       }}
                     >
