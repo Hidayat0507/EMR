@@ -12,21 +12,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Patient, getPatientById, Prescription, ProcedureRecord, createConsultation } from "@/lib/models";
 import { updateQueueStatus } from "@/lib/actions";
 import { safeToISOString } from "@/lib/utils";
-import PrescriptionForm from "./prescription-form";
+import { OrderComposer } from "@/components/orders/order-composer";
 import { PatientCard, SerializedPatient } from "@/components/patients/patient-card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from "next/navigation";
+import { ProcedureOption } from "@/components/procedure-search";
+import SoapRewriteButton from "./soap-rewrite-button";
 
 // Common procedures list
 const commonProcedures = [
@@ -37,16 +33,14 @@ const commonProcedures = [
   { id: "removal", label: "Foreign Body Removal", price: 80.00 },
 ];
 
-export default function ConsultationForm({ patientId }: { patientId: string }) {
-  const [patient, setPatient] = useState<SerializedPatient | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isTreatmentOpen, setIsTreatmentOpen] = useState(true);
-  const [isPrescriptionOpen, setIsPrescriptionOpen] = useState(true);
+export default function ConsultationForm({ patientId, initialPatient }: { patientId: string; initialPatient?: SerializedPatient }) {
+  const [patient, setPatient] = useState<SerializedPatient | null>(initialPatient ?? null);
+  const [loading, setLoading] = useState(!initialPatient);
   
   // Form state
   const [chiefComplaint, setChiefComplaint] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
-  const [selectedProcedures, setSelectedProcedures] = useState<string[]>([]);
+  const [procedureEntries, setProcedureEntries] = useState<ProcedureRecord[]>([]);
   const [additionalNotes, setAdditionalNotes] = useState("");
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
 
@@ -54,12 +48,18 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
   const router = useRouter();
 
   useEffect(() => {
+    // If we already have initial patient for this id, skip fetching
+    if (initialPatient && initialPatient.id === patientId) {
+      setLoading(false);
+      return;
+    }
+    let isActive = true;
     async function loadPatient() {
       try {
         const patientData = await getPatientById(patientId);
+        if (!isActive) return;
         if (patientData) {
-          // Serialize patient data before setting state
-          const serializedPatient = {
+          const serializedPatient: SerializedPatient = {
             ...patientData,
             dateOfBirth: safeToISOString(patientData.dateOfBirth),
             lastVisit: safeToISOString(patientData.lastVisit),
@@ -75,19 +75,16 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
       } catch (error) {
         console.error('Error loading patient:', error);
       } finally {
-        setLoading(false);
+        if (isActive) setLoading(false);
       }
     }
     loadPatient();
-  }, [patientId]);
+    return () => {
+      isActive = false;
+    };
+  }, [patientId, initialPatient]);
 
-  const handleProcedureToggle = (procedureId: string) => {
-    setSelectedProcedures(prev => 
-      prev.includes(procedureId)
-        ? prev.filter(id => id !== procedureId)
-        : [...prev, procedureId]
-    );
-  };
+  // Procedures managed by OrderComposer
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -103,21 +100,12 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
     }
 
     try {
-      // Map selected procedure IDs to ProcedureRecord objects
-      const procedureRecords: ProcedureRecord[] = selectedProcedures.map(procId => {
-        const procedureInfo = commonProcedures.find(p => p.id === procId);
-        return {
-          name: procedureInfo?.label || procId, // Use label as name, fallback to ID
-          price: procedureInfo?.price // Price comes from the commonProcedures list
-        };
-      });
-
       const consultationData = {
         patientId,
         date: new Date(), // Consider using server timestamp later
         chiefComplaint,
         diagnosis,
-        procedures: procedureRecords, // Use the mapped array
+        procedures: procedureEntries, // From order composer
         notes: additionalNotes,
         prescriptions: prescriptions // Assuming prescriptions state already holds objects with price?
       };
@@ -157,7 +145,7 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
   }
 
   return (
-    <div className="container max-w-4xl py-6">
+    <div className="container max-w-7xl py-6">
       <div className="mb-6">
         <Link
           href={`/patients/${patientId}`}
@@ -168,128 +156,54 @@ export default function ConsultationForm({ patientId }: { patientId: string }) {
         </Link>
       </div>
 
-      <div className="space-y-6">
-        {/* Patient Summary */}
-        {patient && <PatientCard patient={patient} />}
-
-        {/* Consultation Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Treatment Section */}
-          <Collapsible open={isTreatmentOpen} onOpenChange={setIsTreatmentOpen}>
-            <Card className="border-none shadow-none">
-              <CardHeader className="p-0">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1.5">
-                    <CardTitle className="text-2xl">Consultation</CardTitle>
-                    <CardDescription className="text-base">Record patient&apos;s condition and procedures</CardDescription>
-                  </div>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="hover:bg-muted/50">
-                      {isTreatmentOpen ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </CollapsibleTrigger>
-                </div>
-              </CardHeader>
-              <CollapsibleContent>
-                <CardContent className="p-0 pt-6">
-                  <div className="space-y-6">
-                    <div>
-                      <Label>Chief Complaint</Label>
-                      <Textarea 
-                        placeholder="Patient's main symptoms or concerns..." 
-                        className="mt-1.5 min-h-[150px]"
-                        value={chiefComplaint}
-                        onChange={(e) => setChiefComplaint(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <Label>Diagnosis</Label>
-                      <Input 
-                        placeholder="Clinical diagnosis..." 
-                        className="mt-1.5"
-                        value={diagnosis}
-                        onChange={(e) => setDiagnosis(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Common Procedures</Label>
-                      <div className="grid grid-cols-2 gap-4">
-                        {commonProcedures.map((procedure) => (
-                          <div key={procedure.id} className="flex items-center space-x-2">
-                            <Checkbox 
-                              id={procedure.id}
-                              checked={selectedProcedures.includes(procedure.id)}
-                              onCheckedChange={() => handleProcedureToggle(procedure.id)}
-                            />
-                            <label 
-                              htmlFor={procedure.id} 
-                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                            >
-                              {procedure.label}
-                            </label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Additional Procedures / Notes</Label>
-                      <Textarea 
-                        placeholder="Describe any additional procedures or specific details..."
-                        className="min-h-[100px]"
-                        value={additionalNotes}
-                        onChange={(e) => setAdditionalNotes(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </CollapsibleContent>
-            </Card>
-          </Collapsible>
-
-          {/* Prescriptions */}
-          <Collapsible open={isPrescriptionOpen} onOpenChange={setIsPrescriptionOpen}>
-            <Card className="border-none shadow-none">
-              <CardHeader className="p-0">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1.5">
-                    <CardTitle className="text-2xl">Prescriptions</CardTitle>
-                    <CardDescription className="text-base">Add medications for the patient</CardDescription>
-                  </div>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="hover:bg-muted/50">
-                      {isPrescriptionOpen ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </CollapsibleTrigger>
-                </div>
-              </CardHeader>
-              <CollapsibleContent>
-                <CardContent className="p-0 pt-6">
-                  <PrescriptionForm 
-                    onPrescriptionsChange={setPrescriptions}
-                    initialPrescriptions={prescriptions}
-                  />
-                </CardContent>
-              </CollapsibleContent>
-            </Card>
-          </Collapsible>
-
-          {/* Action Buttons */}
-          <div className="flex justify-end space-x-4">
-            <Button variant="outline" type="button" asChild>
-              <Link href={`/patients/${patientId}`}>Cancel</Link>
-            </Button>
-            <Button type="submit">Save Consultation</Button>
+      {/* Consultation Form */}
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-start">
+          {/* Left: Patient Details */}
+          <div className="md:col-span-3 space-y-2 sticky top-2 self-start">
+            {patient && <PatientCard patient={patient} compact />}
           </div>
-        </form>
-      </div>
+
+          {/* Middle: Chief Complaint & Diagnosis (largest column) */}
+          <div className="md:col-span-6 space-y-2">
+            <Textarea
+              placeholder="Subjective (chief complaint)…"
+              className="min-h-[200px]"
+              value={chiefComplaint}
+              onChange={(e) => setChiefComplaint(e.target.value)}
+            />
+            <SoapRewriteButton
+              sourceText={chiefComplaint}
+              onInsert={(soap) => setChiefComplaint(soap)}
+            />
+            <Input
+              placeholder="Condition (diagnosis)"
+              className="mt-4"
+              value={diagnosis}
+              onChange={(e) => setDiagnosis(e.target.value)}
+            />
+          </div>
+
+          {/* Right: Orders (Meds + Procedures) */}
+          <div className="md:col-span-3 space-y-2 sticky top-2 self-start">
+            <OrderComposer
+              procedureOptions={commonProcedures}
+              initialPrescriptions={prescriptions}
+              initialProcedures={procedureEntries}
+              onPrescriptionsChange={setPrescriptions}
+              onProceduresChange={setProcedureEntries}
+            />
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end space-x-4">
+          <Button variant="outline" type="button" asChild>
+            <Link href={`/patients/${patientId}`}>Cancel</Link>
+          </Button>
+          <Button type="submit">Sign Order</Button>
+        </div>
+      </form>
     </div>
   );
 }

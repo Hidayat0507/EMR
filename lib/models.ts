@@ -41,8 +41,8 @@ export interface Patient {
   };
   createdAt: Date | string;
   updatedAt?: Date | string;
-  queueStatus?: 'waiting' | 'in_consultation' | 'completed' | 'meds_and_bills';
-  queueAddedAt?: Date | string;
+  queueStatus?: QueueStatus; // allow null per shared QueueStatus type
+  queueAddedAt?: Date | string | null;
 }
 
 export interface Consultation {
@@ -65,6 +65,7 @@ export interface ProcedureRecord {
   name: string;
   price?: number;
   // Add other fields if needed, e.g., notes specific to this procedure instance
+  notes?: string;
 }
 
 export interface Prescription {
@@ -93,7 +94,8 @@ const convertTimestamps = (data: DocumentData): DocumentData => {
       'date',
       'lastVisit',
       'upcomingAppointment',
-      'dateOfBirth'
+      'dateOfBirth',
+      'queueAddedAt'
     ];
 
     dateFields.forEach(field => {
