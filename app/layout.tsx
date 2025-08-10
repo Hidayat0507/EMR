@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 import Toaster from '@/components/ui/toaster';
 import Sidebar from '@/components/sidebar';
+import { AuthProvider } from '@/lib/auth';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -26,17 +27,19 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <div className="relative flex min-h-screen flex-col">
-            <div className="flex flex-1">
-              <Sidebar />
-              <main className="flex-1 overflow-y-auto">
-                <div className="container p-8">
-                  {children}
-                </div>
-              </main>
+          <AuthProvider>
+            <div className="relative flex min-h-screen flex-col">
+              <div className="flex flex-1">
+                <Sidebar />
+                <main className="flex-1 overflow-y-auto">
+                  <div className="container p-8">
+                    {children}
+                  </div>
+                </main>
+              </div>
             </div>
-          </div>
-          <Toaster />
+            <Toaster />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowRight, Users, Calendar, FileText, Activity, Heart, Shield, Clock, Zap } from "lucide-react";
+import { ArrowRight, Users, Activity, Heart, Shield, Clock, Zap } from "lucide-react";
 import Link from "next/link";
 
 export default function Home() {
@@ -37,18 +37,6 @@ export default function Home() {
       description: "Comprehensive patient profiles and history tracking",
       icon: Users,
       href: "/patients"
-    },
-    {
-      title: "Appointment System",
-      description: "Smart scheduling and appointment management",
-      icon: Calendar,
-      href: "/appointments"
-    },
-    {
-      title: "Medical Records",
-      description: "Digital health records and documentation",
-      icon: FileText,
-      href: "/records"
     },
     {
       title: "Health Monitoring",

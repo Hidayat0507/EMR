@@ -2,18 +2,17 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { 
   Activity, 
-  Calendar, 
   FileText, 
   Settings, 
   Users 
 } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 export default function Navbar() {
+  const { signOut } = useAuth();
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: Activity },
     { name: "Patients", href: "/patients", icon: Users },
-    { name: "Appointments", href: "/appointments", icon: Calendar },
-    { name: "Records", href: "/records", icon: FileText },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 
@@ -37,10 +36,15 @@ export default function Navbar() {
           ))}
         </nav>
         <div className="ml-auto flex items-center space-x-4">
-          <Button variant="outline" size="sm">
-            Theme
+          <Button variant="outline" size="sm" onClick={async () => {
+            try {
+              await fetch('/api/auth/session', { method: 'DELETE' });
+            } catch {}
+            await signOut();
+            if (typeof window !== 'undefined') window.location.assign('/login');
+          }}>
+            Logout
           </Button>
-          <Button size="sm">Get Started</Button>
         </div>
       </div>
     </div>

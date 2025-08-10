@@ -1,4 +1,7 @@
-import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
+import { useEffect, useState } from 'react';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const styles = StyleSheet.create({
   page: {
@@ -14,11 +17,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 20,
   },
-  logo: {
-    fontSize: 24,
-    color: '#1a56db',
-    fontWeight: 'bold',
-  },
+  logoBox: { width: 140, height: 50 },
+  logoText: { fontSize: 20, color: '#1f2937', fontWeight: 'bold' },
+  org: { marginTop: 4 },
+  orgName: { fontSize: 12, color: '#111827', fontWeight: 'bold' },
+  orgText: { fontSize: 10, color: '#6b7280' },
   billInfo: {
     textAlign: 'right',
   },
@@ -35,8 +38,10 @@ const styles = StyleSheet.create({
   headerBottom: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    borderTop: '1 solid #e5e7eb',
-    borderBottom: '1 solid #e5e7eb',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
     paddingVertical: 20,
   },
   patientInfo: {
@@ -73,13 +78,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#f3f4f6',
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderBottom: '1 solid #e5e7eb',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
   tableRow: {
     flexDirection: 'row',
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderBottom: '1 solid #e5e7eb',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
   tableCell: {
     flex: 1,
@@ -94,7 +101,8 @@ const styles = StyleSheet.create({
   totalSection: {
     marginTop: 30,
     paddingTop: 20,
-    borderTop: '2 solid #e5e7eb',
+    borderTopWidth: 2,
+    borderTopColor: '#e5e7eb',
   },
   totalRow: {
     flexDirection: 'row',
@@ -120,7 +128,8 @@ const styles = StyleSheet.create({
   },
   footer: {
     marginTop: 40,
-    borderTop: '1 solid #e5e7eb',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
     paddingTop: 20,
     fontSize: 10,
     color: '#6b7280',
@@ -147,6 +156,22 @@ interface BillDocumentProps {
 }
 
 export function BillDocument({ data }: BillDocumentProps) {
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [org, setOrg] = useState<{ name?: string; address?: string; phone?: string } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'org'));
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          setLogoUrl(data.logoUrl || null);
+          setOrg({ name: data.name, address: data.address, phone: data.phone });
+        }
+      } catch {}
+    })();
+  }, []);
+
   const calculateSubtotal = (items: Array<{ price: number }>) => {
     return items.reduce((sum, item) => sum + item.price, 0);
   };
@@ -161,7 +186,21 @@ export function BillDocument({ data }: BillDocumentProps) {
         {/* Header */}
         <View style={styles.headerContainer}>
           <View style={styles.headerTop}>
-            <Text style={styles.logo}>EMR System</Text>
+            <View>
+              {logoUrl ? (
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image src={logoUrl} style={styles.logoBox} />
+              ) : (
+                <Text style={styles.logoText}>EMR System</Text>
+              )}
+              {org && (org.name || org.address || org.phone) && (
+                <View style={styles.org}>
+                  {org.name ? <Text style={styles.orgName}>{org.name}</Text> : null}
+                  {org.address ? <Text style={styles.orgText}>{org.address}</Text> : null}
+                  {org.phone ? <Text style={styles.orgText}>{org.phone}</Text> : null}
+                </View>
+              )}
+            </View>
             <View style={styles.billInfo}>
               <Text style={styles.billTitle}>MEDICAL BILL</Text>
               <Text style={styles.billNumber}>Bill #{data.id}</Text>

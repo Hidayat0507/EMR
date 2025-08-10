@@ -66,6 +66,11 @@ export interface ProcedureRecord {
   price?: number;
   // Add other fields if needed, e.g., notes specific to this procedure instance
   notes?: string;
+  // Link to master procedure and FHIR coding for interoperable export
+  procedureId?: string;
+  codingSystem?: string; // e.g., http://snomed.info/sct
+  codingCode?: string;
+  codingDisplay?: string;
 }
 
 export interface Prescription {

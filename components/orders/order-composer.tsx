@@ -54,7 +54,7 @@ const durations = [
   { value: "1m", label: "1 month" },
 ];
 
-export type ProcedureOption = { id: string; label: string; price?: number };
+export type ProcedureOption = { id: string; label: string; price?: number; codingSystem?: string; codingCode?: string; codingDisplay?: string };
 
 interface OrderComposerProps {
   procedureOptions: ProcedureOption[];
@@ -114,6 +114,7 @@ export function OrderComposer({
       label: p.label,
       type: "procedure",
       price: p.price,
+      payload: { codingSystem: p.codingSystem, codingCode: p.codingCode, codingDisplay: p.codingDisplay },
     }));
     return [...medOptions, ...procOptions];
   }, [medications, procedureOptions]);
@@ -144,7 +145,14 @@ export function OrderComposer({
       setQuery("");
     } else {
       // Add to list first; details will be edited when clicking the list item
-      const proc: ProcedureRecord = { name: opt.label, price: opt.price };
+      const proc: ProcedureRecord = {
+        name: opt.label,
+        price: opt.price,
+        procedureId: opt.id,
+        codingSystem: opt.payload?.codingSystem,
+        codingCode: opt.payload?.codingCode,
+        codingDisplay: opt.payload?.codingDisplay,
+      };
       setProcedures((prev) => [...prev, proc]);
       setQuery("");
     }

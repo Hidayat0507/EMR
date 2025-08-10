@@ -8,7 +8,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState } from "react";
 import { 
   Activity, 
-  Calendar, 
   FileText, 
   Settings, 
   Users,
@@ -26,8 +25,6 @@ const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Analytics", href: "/analytics", icon: Activity },
   { name: "Patients", href: "/patients", icon: Users },
-  { name: "Appointments", href: "/appointments", icon: Calendar },
-  { name: "Records", href: "/records", icon: FileText },
   { name: "Orders", href: "/orders", icon: ClipboardListIcon },
   { name: "Inventory", href: "/inventory", icon: Package },
 ];

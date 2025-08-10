@@ -58,13 +58,22 @@ export async function toFhirMedicationRequest(patientRef: string, encounterRef: 
 }
 
 export async function toFhirServiceRequest(patientRef: string, encounterRef: string, pr: ProcedureRecord): Promise<string> {
+  const codeable = pr.codingCode || pr.codingDisplay || pr.codingSystem
+    ? {
+        coding: pr.codingCode
+          ? [{ system: pr.codingSystem || undefined, code: pr.codingCode, display: pr.codingDisplay || pr.name }]
+          : undefined,
+        text: pr.codingDisplay || pr.name,
+      }
+    : { text: pr.name };
+
   const resource = {
     resourceType: "ServiceRequest",
     status: "active",
     intent: "order",
     subject: { reference: patientRef },
     encounter: { reference: encounterRef },
-    code: { text: pr.name },
+    code: codeable,
     note: pr.notes ? [{ text: pr.notes }] : undefined,
   } as any;
   const id = await saveFhirResource(resource);
