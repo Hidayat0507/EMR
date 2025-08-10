@@ -1,9 +1,14 @@
 import { db } from './firebase';
 import { doc, updateDoc, Timestamp, getDoc } from 'firebase/firestore';
 import { QueueStatus } from './types';
+import { z } from 'zod';
+
+const idSchema = z.string().min(1);
+const statusSchema = z.enum(['waiting', 'in_consultation', 'completed', 'meds_and_bills']).nullable().or(z.literal('waiting')).or(z.literal('in_consultation')).or(z.literal('completed')).or(z.literal('meds_and_bills')) as any;
 
 export async function addPatientToQueue(patientId: string) {
   try {
+    idSchema.parse(patientId);
     const docRef = doc(db, 'patients', patientId);
     const docSnap = await getDoc(docRef);
     
@@ -29,6 +34,7 @@ export async function addPatientToQueue(patientId: string) {
 
 export async function removePatientFromQueue(patientId: string) {
   try {
+    idSchema.parse(patientId);
     const docRef = doc(db, 'patients', patientId);
     const docSnap = await getDoc(docRef);
     
@@ -49,6 +55,7 @@ export async function removePatientFromQueue(patientId: string) {
 
 export async function updateQueueStatus(patientId: string, status: QueueStatus) {
   try {
+    idSchema.parse(patientId);
     const docRef = doc(db, 'patients', patientId);
     const docSnap = await getDoc(docRef);
     

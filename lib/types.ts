@@ -1,5 +1,5 @@
 // lib/types.ts
-import { Consultation } from "./models"; // Assuming Consultation is defined in models.ts
+import type { Consultation } from "./models"; // type-only import to avoid runtime cycles
 
 // Shared type for queue status across different modules
 export type QueueStatus = 'waiting' | 'in_consultation' | 'completed' | 'meds_and_bills' | null;
