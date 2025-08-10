@@ -24,7 +24,8 @@ const nextConfig = {
         source: '/(.*)',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'DENY' },
+          // Consider SAMEORIGIN if you embed internal iframes; keep DENY if not needed
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
@@ -33,9 +34,15 @@ const nextConfig = {
             "default-src 'self'", 
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'", 
             "style-src 'self' 'unsafe-inline'", 
-            "img-src 'self' data: https:",
+            "img-src 'self' data: blob: https:",
             "font-src 'self' data:",
-            "connect-src 'self' https:",
+            // Allow PDF viewer/yoga-wasm (data: and blob:) and Firebase HTTPS endpoints
+            "connect-src 'self' https: data: blob:",
+            // Allow embedding PDF viewer iframe and blob URLs
+            "frame-src 'self' blob: data:",
+            "child-src 'self' blob: data:",
+            // Allow web workers for PDF rendering
+            "worker-src 'self' blob:",
             "frame-ancestors 'none'",
           ].join('; ') },
         ],

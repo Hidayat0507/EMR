@@ -8,7 +8,6 @@ import {
   Users, 
   Calendar, 
   Clock, 
-  Bell,
   Heart,
   TrendingUp,
   AlertCircle,
@@ -116,10 +115,7 @@ export default function Dashboard() {
           <Button variant="outline" size="icon" onClick={handleRefresh}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button>
-            <Bell className="h-4 w-4 mr-2" />
-            Notifications
-          </Button>
+          {/* Notifications button removed per request */}
         </div>
       </div>
 

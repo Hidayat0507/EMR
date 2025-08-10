@@ -1,5 +1,5 @@
 import { db } from "@/lib/firebase";
-import { addDoc, collection, doc, setDoc, Timestamp } from "firebase/firestore";
+import { collection, doc, setDoc } from "firebase/firestore";
 
 export type FhirResource = {
   resourceType: string;
@@ -8,6 +8,8 @@ export type FhirResource = {
 } & Record<string, unknown>;
 
 function collectionName(resourceType: string): string {
+  // Keep a dedicated collection per resource type
+  // E.g., Patient -> fhir_Patient, Encounter -> fhir_Encounter
   return `fhir_${resourceType}`;
 }
 

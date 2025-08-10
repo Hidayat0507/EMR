@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/ui/use-toast";
 import React, { useState } from 'react';
 import { storage } from '@/lib/firebase';
+import { useAuth } from '@/lib/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
@@ -21,6 +22,7 @@ interface UserSettings {
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { user, signOut } = useAuth();
   // Placeholder state - connect to user data later
   const [settings, setSettings] = useState<UserSettings>({
     fullName: 'Dr. John Doe', // Example data
@@ -95,6 +97,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-bold">Settings</h1>
+      <div className="text-sm text-muted-foreground">Signed in as: {user?.email || user?.uid}</div>
 
       <Card>
         <CardHeader>
@@ -135,6 +138,16 @@ export default function SettingsPage() {
               )}
             </div>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Security</CardTitle>
+          <CardDescription>Session controls</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" onClick={async () => { try { await fetch('/api/auth/session', { method: 'DELETE' }); } catch {}; await signOut(); if (typeof window !== 'undefined') window.location.assign('/login'); }}>Sign out</Button>
         </CardContent>
       </Card>
 

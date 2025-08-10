@@ -86,13 +86,7 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
                   )}
                 </DialogDescription>
               </div>
-              <div className="flex items-center gap-2">
-                {patient && consultation && (
-                  <Button onClick={handleDownloadPdf} size="sm" disabled={isLoading}>
-                    <Download className="h-4 w-4 mr-2" /> Download PDF
-                  </Button>
-                )}
-              </div>
+              <div className="flex items-center gap-2" />
             </div>
           </DialogHeader>
 
@@ -116,6 +110,11 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
 
           <DialogFooter className="px-6 py-4 border-t">
             <Button variant="outline" onClick={onClose}>Close</Button>
+            {patient && consultation && (
+              <Button onClick={handleDownloadPdf} disabled={isLoading}>
+                <Download className="h-4 w-4 mr-2" /> Download PDF
+              </Button>
+            )}
           </DialogFooter>
         </div>
       </DialogContent>

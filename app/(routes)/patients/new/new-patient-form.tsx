@@ -32,8 +32,6 @@ const patientFormSchema = z.object({
   }).optional(),
   medicalHistory: z.object({
     allergies: z.string().optional().or(z.literal("")),
-    chronicConditions: z.string().optional().or(z.literal("")),
-    currentMedications: z.string().optional().or(z.literal("")),
   }).optional(),
 });
 
@@ -67,8 +65,6 @@ export default function NewPatientForm({ initialFullName = "", initialNric = "" 
       postalCode: "",
       medicalHistory: {
         allergies: "",
-        chronicConditions: "",
-        currentMedications: "",
       },
       emergencyContact: {
         name: "",
@@ -140,8 +136,8 @@ export default function NewPatientForm({ initialFullName = "", initialNric = "" 
         },
         medicalHistory: {
           allergies: data.medicalHistory?.allergies?.split(',').map(s => s.trim()).filter(Boolean) || [],
-          conditions: data.medicalHistory?.chronicConditions?.split(',').map(s => s.trim()).filter(Boolean) || [],
-          medications: data.medicalHistory?.currentMedications?.split(',').map(s => s.trim()).filter(Boolean) || [],
+          conditions: [],
+          medications: [],
         }
       };
 
@@ -332,24 +328,7 @@ export default function NewPatientForm({ initialFullName = "", initialNric = "" 
                       <FormMessage />
                     </FormItem>
                   )} />
-                  <FormField control={form.control} name="medicalHistory.chronicConditions" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Chronic Conditions</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="List any chronic conditions" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="medicalHistory.currentMedications" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Current Medications</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="List current medications" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  
                 </div>
               </div>
 

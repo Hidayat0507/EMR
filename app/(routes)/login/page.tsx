@@ -13,7 +13,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, resetPassword } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -27,13 +27,15 @@ export default function Login() {
       const user = (await import('firebase/auth')).getAuth().currentUser;
       const idToken = user ? await user.getIdToken() : null;
       if (idToken) {
-        await fetch('/api/auth/session', {
+        const res = await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ idToken }),
         });
+        if (!res.ok) throw new Error('Session creation failed');
       }
-      router.push("/dashboard");
+      // Replace to avoid back navigation to login
+      router.replace("/dashboard");
     } catch (error) {
       toast({
         title: "Error",
@@ -45,8 +47,21 @@ export default function Login() {
     }
   };
 
+  const handleReset = async () => {
+    if (!email) {
+      toast({ title: 'Enter your email', description: 'Provide your account email to receive reset link.' });
+      return;
+    }
+    try {
+      await resetPassword(email);
+      toast({ title: 'Email sent', description: 'Check your inbox for the reset link.' });
+    } catch (e) {
+      toast({ title: 'Error', description: 'Could not send reset email.', variant: 'destructive' });
+    }
+  };
+
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
+    <div className="fixed inset-0 flex items-center justify-center w-screen px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Welcome back</CardTitle>
@@ -78,7 +93,11 @@ export default function Login() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign in"}
             </Button>
+            <Button type="button" variant="ghost" className="w-full" onClick={handleReset} disabled={isLoading}>
+              Forgot password?
+            </Button>
           </form>
+          {/* Signup disabled */}
         </CardContent>
       </Card>
     </div>

@@ -1,3 +1,4 @@
+"use client";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { 
@@ -9,7 +10,7 @@ import {
 import { useAuth } from "@/lib/auth";
 
 export default function Navbar() {
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: Activity },
     { name: "Patients", href: "/patients", icon: Users },
@@ -36,15 +37,25 @@ export default function Navbar() {
           ))}
         </nav>
         <div className="ml-auto flex items-center space-x-4">
-          <Button variant="outline" size="sm" onClick={async () => {
-            try {
-              await fetch('/api/auth/session', { method: 'DELETE' });
-            } catch {}
-            await signOut();
-            if (typeof window !== 'undefined') window.location.assign('/login');
-          }}>
-            Logout
-          </Button>
+          {user ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await fetch('/api/auth/session', { method: 'DELETE' });
+                } catch {}
+                await signOut();
+                if (typeof window !== 'undefined') window.location.assign('/login');
+              }}
+            >
+              Logout
+            </Button>
+          ) : (
+            <Button asChild size="sm" variant="default">
+              <Link href="/login">Login</Link>
+            </Button>
+          )}
         </div>
       </div>
     </div>
