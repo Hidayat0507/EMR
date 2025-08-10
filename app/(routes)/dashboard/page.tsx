@@ -9,8 +9,6 @@ import {
   Calendar, 
   Clock, 
   Heart,
-  TrendingUp,
-  AlertCircle,
   MoreHorizontal,
   RefreshCw
 } from "lucide-react";
@@ -145,30 +143,7 @@ export default function Dashboard() {
             </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Critical Cases</CardTitle>
-            <AlertCircle className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">3</div>
-            <p className="text-xs text-muted-foreground">
-              2 require immediate attention
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Patient Recovery</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">89%</div>
-            <p className="text-xs text-muted-foreground">
-              +5% this week
-            </p>
-          </CardContent>
-        </Card>
+        
       </div>
 
       {/* Main Content - Simplified to only show Queue Tab */}
