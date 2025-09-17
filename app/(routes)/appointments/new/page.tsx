@@ -1,5 +1,13 @@
 import { notFound } from "next/navigation";
 
-export default function NewAppointment() {
-  notFound();
+import { loadModulePage } from "@/lib/module-registry";
+
+export default async function NewAppointmentPage() {
+  const ModulePage = await loadModulePage("appointments", "create");
+
+  if (!ModulePage) {
+    notFound();
+  }
+
+  return <ModulePage />;
 }

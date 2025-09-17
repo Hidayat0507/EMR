@@ -50,7 +50,7 @@ export default function SoapRewriteButton({ sourceText, onInsert }: SoapRewriteB
               Clear
             </Button>
             <Button type="button" size="sm" onClick={() => onInsert(result)}>
-              Insert into Chief Complaint
+              Insert into Notes
             </Button>
           </div>
         </div>

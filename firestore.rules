@@ -20,6 +20,12 @@ service cloud.firestore {
     match /patients/{patientId} {
       allow read: if isSignedIn();
       allow write: if hasAnyRole(['admin', 'doctor', 'nurse']);
+
+      // Patient documents subcollection (PDF uploads metadata)
+      match /documents/{documentId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if hasAnyRole(['admin', 'doctor', 'nurse']);
+      }
     }
 
     // Consultations collection
@@ -27,6 +33,22 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if hasAnyRole(['admin', 'doctor']);
       allow update: if hasAnyRole(['admin', 'doctor']);
+      allow delete: if hasAnyRole(['admin']);
+    }
+
+    // Referrals collection
+    match /referrals/{referralId} {
+      allow read: if isSignedIn();
+      allow create: if hasAnyRole(['admin', 'doctor']);
+      allow update: if hasAnyRole(['admin', 'doctor']);
+      allow delete: if hasAnyRole(['admin']);
+    }
+
+    // Appointments collection
+    match /appointments/{appointmentId} {
+      allow read: if isSignedIn();
+      allow create: if hasAnyRole(['admin', 'doctor', 'nurse']);
+      allow update: if hasAnyRole(['admin', 'doctor', 'nurse']);
       allow delete: if hasAnyRole(['admin']);
     }
 

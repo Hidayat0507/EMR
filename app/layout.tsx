@@ -1,26 +1,26 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 import Toaster from '@/components/ui/toaster';
 import Sidebar from '@/components/sidebar';
 import { AuthProvider } from '@/lib/auth';
-
-const inter = Inter({ subsets: ['latin'] });
+import { listActiveModules } from '@/lib/module-registry';
 
 export const metadata: Metadata = {
   title: 'EMR System',
   description: 'Modern Electronic Medical Records System',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const modules = await listActiveModules();
+
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} min-h-screen bg-background font-sans antialiased`}>
+      <body className="min-h-screen bg-background font-sans antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -30,7 +30,14 @@ export default function RootLayout({
           <AuthProvider>
             <div className="relative flex min-h-screen flex-col">
               <div className="flex flex-1">
-                <Sidebar />
+                <Sidebar
+                  modules={modules.map((module) => ({
+                    id: module.id,
+                    label: module.label,
+                    routePath: module.routePath,
+                    icon: module.icon,
+                  }))}
+                />
                 <main className="flex-1 overflow-y-auto">
                   <div className="container p-8">
                     {children}

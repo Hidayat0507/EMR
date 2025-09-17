@@ -2,26 +2,39 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState } from "react";
-import { 
-  Activity, 
-  FileText, 
-  Settings, 
-  Users,
+import {
+  Activity,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardListIcon,
   LayoutDashboard,
   LogOut,
   Package,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardListIcon
+  Puzzle,
+  Settings,
+  Users,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { useAuth } from "@/lib/auth";
 
-const navigation = [
+type SidebarModule = {
+  id: string;
+  label: string;
+  routePath: string;
+  icon?: string;
+};
+
+type SidebarProps = {
+  modules?: SidebarModule[];
+};
+
+const baseNavigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Analytics", href: "/analytics", icon: Activity },
   { name: "Patients", href: "/patients", icon: Users },
@@ -33,11 +46,29 @@ const bottomNavigation = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
-export default function Sidebar() {
+const moduleIconMap: Record<string, LucideIcon> = {
+  calendar: Calendar,
+};
+
+export default function Sidebar({ modules = [] }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const navigation = useMemo(() => {
+    if (!modules.length) {
+      return baseNavigation;
+    }
+
+    const moduleNavigation = modules.map((module) => ({
+      name: module.label,
+      href: module.routePath,
+      icon: module.icon ? moduleIconMap[module.icon] ?? Puzzle : Puzzle,
+    }));
+
+    return [...baseNavigation, ...moduleNavigation];
+  }, [modules]);
 
   // Hide sidebar entirely on public routes like login/logout
   if (pathname?.startsWith('/login') || pathname?.startsWith('/signup')) {

@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import PatientDocuments from "@/components/patients/patient-documents";
 
 interface PatientProfilePageProps {
   params: Promise<{ id: string }>;
@@ -130,6 +131,7 @@ export default async function PatientProfilePage({ params }: PatientProfilePageP
           <TabsTrigger value="history">Consultation History</TabsTrigger>
           <TabsTrigger value="details">Patient Details</TabsTrigger>
           <TabsTrigger value="referral-mc">Referral / MC</TabsTrigger>
+          <TabsTrigger value="documents">Documents</TabsTrigger>
         </TabsList>
 
         {/* Consultation History Tab */}
@@ -240,6 +242,12 @@ export default async function PatientProfilePage({ params }: PatientProfilePageP
            <Suspense fallback={<div>Loading form...</div>}>
              <ReferralMCSection patient={patient} />
            </Suspense>
+        </TabsContent>
+
+        {/* Documents Tab */}
+        <TabsContent value="documents">
+          {/* Client-side uploader and list */}
+          <PatientDocuments patientId={id} />
         </TabsContent>
       </Tabs>
     </div>

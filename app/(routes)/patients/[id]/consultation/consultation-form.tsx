@@ -181,7 +181,7 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
             <div className="flex items-start gap-2 mt-2">
               <SoapRewriteButton
                 sourceText={chiefComplaint}
-                onInsert={(soap) => setChiefComplaint(soap)}
+                onInsert={(soap) => setAdditionalNotes(soap)}
               />
               <ReferralLetterButton
                 sourceText={[chiefComplaint, diagnosis, additionalNotes].filter(Boolean).join("\n\n")}
