@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/use-toast";
 import Link from "next/link";
 import { ArrowLeft, Camera } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import NextImage from "next/image";
 
 export default function ScanICPage() {
   return (
@@ -25,6 +26,8 @@ function ScanICPageInner() {
   const [captured, setCaptured] = useState<string | null>(null);
   const [fullName, setFullName] = useState("");
   const [nric, setNric] = useState("");
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [isReading, setIsReading] = useState(false);
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
@@ -64,26 +67,73 @@ function ScanICPageInner() {
 
   const capture = async () => {
     if (!videoRef.current || !canvasRef.current) return;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    try {
+      setIsCapturing(true);
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const maxWidth = 1280;
+      const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.filter = 'none';
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      setCaptured(dataUrl);
+      toast({ title: 'Photo captured', description: 'Review the still before reading the IC.' });
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  const preprocessForOCR = async (dataUrl: string) => {
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = (err) => reject(err);
+    });
+    const maxWidth = 900;
+    const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    setCaptured(dataUrl);
+    if (!ctx) return dataUrl;
+    ctx.filter = 'grayscale(100%) contrast(140%) brightness(110%)';
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const marginX = Math.round(canvas.width * 0.08);
+    const marginY = Math.round(canvas.height * 0.18);
+    const cropWidth = Math.max(1, canvas.width - marginX * 2);
+    const cropHeight = Math.max(1, canvas.height - marginY * 2);
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = cropWidth;
+    cropCanvas.height = cropHeight;
+    const cropCtx = cropCanvas.getContext('2d');
+    if (!cropCtx) return canvas.toDataURL('image/jpeg', 0.65);
+    cropCtx.drawImage(canvas, marginX, marginY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    return cropCanvas.toDataURL('image/jpeg', 0.65);
   };
 
   const runOCR = async () => {
-    if (!captured) return;
+    if (!captured) {
+      toast({ title: 'Capture required', description: 'Take a photo of the IC before reading.', variant: 'destructive' });
+      return;
+    }
     try {
-      const base64 = captured.split(',')[1];
+      setIsReading(true);
+      const processed = await preprocessForOCR(captured);
+      const base64 = processed.split(',')[1];
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
       const res = await fetch('/api/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64 })
+        body: JSON.stringify({ image: base64 }),
+        signal: controller.signal
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'OCR failed');
       setFullName(data.fullName || "");
@@ -91,6 +141,8 @@ function ScanICPageInner() {
       toast({ title: 'IC scanned', description: 'Review and continue to registration.' });
     } catch (e: any) {
       toast({ title: 'OCR error', description: e.message || 'Failed to read IC', variant: 'destructive' });
+    } finally {
+      setIsReading(false);
     }
   };
 
@@ -111,14 +163,32 @@ function ScanICPageInner() {
         <CardContent className="space-y-4">
           <div className="relative w-full aspect-video rounded-md overflow-hidden bg-black/20">
             <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+            {captured && (
+              <div className="absolute inset-0 bg-black/70">
+                <NextImage src={captured} alt="Captured IC" fill className="object-contain rounded" sizes="100vw" />
+              </div>
+            )}
             <canvas ref={canvasRef} className="hidden" />
+            {captured && (
+              <div className="absolute bottom-2 right-2 flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setCaptured(null)} disabled={isReading}>
+                  Retake
+                </Button>
+              </div>
+            )}
+            {isReading && (
+              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white gap-2">
+                <span className="text-sm font-medium">Reading IC…</span>
+                <span className="text-xs text-white/80">This may take a few seconds on first use.</span>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={capture} className="flex items-center gap-2">
-              <Camera className="h-4 w-4" /> Capture
+            <Button type="button" onClick={capture} className="flex items-center gap-2" disabled={isCapturing || isReading}>
+              <Camera className="h-4 w-4" /> {captured ? 'Retake Photo' : 'Capture'}
             </Button>
-            <Button type="button" variant="secondary" onClick={runOCR} disabled={!captured}>
-              Read IC
+            <Button type="button" variant="secondary" onClick={runOCR} disabled={!captured || isReading}>
+              {isReading ? 'Reading…' : 'Read IC'}
             </Button>
           </div>
 
@@ -143,5 +213,3 @@ function ScanICPageInner() {
     </div>
   );
 }
-
-

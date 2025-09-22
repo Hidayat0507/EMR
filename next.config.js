@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  outputFileTracingRoot: __dirname,
   eslint: {
     // Enforce lint during build in CI; can be disabled locally if needed via env
     ignoreDuringBuilds: false,
@@ -27,7 +28,7 @@ const nextConfig = {
           // Consider SAMEORIGIN if you embed internal iframes; keep DENY if not needed
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' },
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
           // Basic CSP; adjust as needed for analytics/fonts
           { key: 'Content-Security-Policy', value: [

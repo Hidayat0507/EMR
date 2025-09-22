@@ -5,6 +5,10 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/login(?:$|\/)/,
   /^\/logout(?:$|\/)/,
   /^\/api\/auth\/session(?:$|\/)/,
+  // Allow OCR API unauthenticated in development for local testing
+  ...(process.env.NODE_ENV !== 'production' ? [/^\/api\/ocr(?:$|\/)/] : []),
+  // Allow registration and scan routes in development for local testing
+  ...(process.env.NODE_ENV !== 'production' ? [/^\/patients\/new(?:$|\/)/, /^\/patients\/new\/scan(?:$|\/)/] : []),
 ];
 
 export function middleware(req: NextRequest) {
