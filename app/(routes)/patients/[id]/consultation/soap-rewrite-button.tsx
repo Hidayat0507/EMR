@@ -53,20 +53,11 @@ export default function SoapRewriteButton({ sourceText, onInsert }: SoapRewriteB
   };
 
   return (
-    <div className="space-y-3 rounded-md border border-dashed p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-medium">SOAP Enhancement</h3>
-          <p className="text-xs text-muted-foreground">Generate structured SOAP from your clinical notes.</p>
-        </div>
-        <Button type="button" variant="outline" size="sm" disabled={!canRun || loading} onClick={handleRun}>
-          {loading ? "Generating…" : "Generate SOAP"}
-        </Button>
-      </div>
-
-      {error && <div className="text-xs text-destructive">{error}</div>}
-
-      {/* No preview area; content is inserted directly on success */}
+    <div className="flex flex-col gap-1">
+      <Button type="button" variant="outline" size="sm" disabled={!canRun || loading} onClick={handleRun}>
+        {loading ? "Generating…" : "Generate SOAP"}
+      </Button>
+      {error && <span className="text-xs text-destructive">{error}</span>}
     </div>
   );
 }

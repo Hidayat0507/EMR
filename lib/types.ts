@@ -13,6 +13,12 @@ export type BillableConsultation = Omit<Consultation, 'date' | 'createdAt' | 'up
   updatedAt: string | null;
 };
 
+export type SerializedConsultation = Omit<Consultation, "date" | "createdAt" | "updatedAt"> & {
+  date?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
 // Add other shared types here as needed
 
 // SOAP workflow types removed as flow now returns plain-text SOAP only

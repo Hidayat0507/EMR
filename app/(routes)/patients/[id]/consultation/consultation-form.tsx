@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Patient, getPatientById, Prescription, ProcedureRecord, createConsultation } from "@/lib/models";
+import { getPatientById, Prescription, ProcedureRecord, createConsultation, updateConsultation } from "@/lib/models";
 import { updateQueueStatus } from "@/lib/actions";
 import { safeToISOString } from "@/lib/utils";
 import { OrderComposer } from "@/components/orders/order-composer";
@@ -17,12 +17,24 @@ import { getProcedures } from "@/lib/procedures";
 import SoapRewriteButton from "./soap-rewrite-button";
 import ReferralLetterButton from "./referral-letter-button";
 import { executeSmartTextCommand, type SmartTextContext } from "@/lib/smart-text";
+import type { SerializedConsultation } from "@/lib/types";
 
 // Load procedures from DB
 
-export default function ConsultationForm({ patientId, initialPatient }: { patientId: string; initialPatient?: SerializedPatient }) {
+interface ConsultationFormProps {
+  patientId: string;
+  initialPatient?: SerializedPatient;
+  initialConsultation?: SerializedConsultation | null;
+}
+
+export default function ConsultationForm({
+  patientId,
+  initialPatient,
+  initialConsultation = null,
+}: ConsultationFormProps) {
   const [patient, setPatient] = useState<SerializedPatient | null>(initialPatient ?? null);
   const [loading, setLoading] = useState(!initialPatient);
+  const isEditMode = Boolean(initialConsultation?.id);
   const [smartTextState, setSmartTextState] = useState<{
     field: string;
     command: string;
@@ -31,11 +43,16 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
   } | null>(null);
   
   // Form state
-  const [clinicalNotes, setClinicalNotes] = useState("");
-  const [diagnosis, setDiagnosis] = useState("");
-  const [procedureEntries, setProcedureEntries] = useState<ProcedureRecord[]>([]);
-  const [additionalNotes, setAdditionalNotes] = useState("");
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [clinicalNotes, setClinicalNotes] = useState(initialConsultation?.chiefComplaint ?? "");
+  const [diagnosis, setDiagnosis] = useState(initialConsultation?.diagnosis ?? "");
+  const [procedureEntries, setProcedureEntries] = useState<ProcedureRecord[]>(
+    initialConsultation?.procedures ? [...initialConsultation.procedures] : []
+  );
+  const [additionalNotes, setAdditionalNotes] = useState(initialConsultation?.notes ?? "");
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>(
+    initialConsultation?.prescriptions ? [...initialConsultation.prescriptions] : []
+  );
+  const [submitting, setSubmitting] = useState(false);
 
   const { toast } = useToast();
   const router = useRouter();
@@ -222,6 +239,7 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (submitting) return;
 
     // Validate form
     if (!clinicalNotes.trim() || !diagnosis.trim()) {
@@ -234,9 +252,8 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
     }
 
     try {
+      setSubmitting(true);
       const consultationData = {
-        patientId,
-        date: new Date(), // Consider using server timestamp later
         chiefComplaint: clinicalNotes,
         diagnosis,
         procedures: procedureEntries, // From order composer
@@ -244,22 +261,35 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
         prescriptions: prescriptions // Assuming prescriptions state already holds objects with price?
       };
 
-      const consultationId = await createConsultation(consultationData);
-
-      if (consultationId) {
-        // Update queue status AFTER successful consultation save
-        await updateQueueStatus(patientId, 'meds_and_bills');
-
+      if (isEditMode && initialConsultation?.id) {
+        await updateConsultation(initialConsultation.id, consultationData);
         toast({
-          title: "Consultation Saved",
-          description: "Consultation has been successfully recorded.",
+          title: "Consultation Updated",
+          description: "Your changes have been saved.",
         });
-        
-        // Redirect to patient profile or consultation details
         router.push(`/patients/${patientId}`);
-      } else {
-        throw new Error('Failed to save consultation');
+        return;
       }
+
+      const newConsultationId = await createConsultation({
+        patientId,
+        date: new Date(), // Consider using server timestamp later
+        ...consultationData,
+      });
+
+      if (!newConsultationId) {
+        throw new Error("Failed to save consultation");
+      }
+
+      // Update queue status AFTER successful consultation save
+      await updateQueueStatus(patientId, "meds_and_bills");
+
+      toast({
+        title: "Consultation Saved",
+        description: "Consultation has been successfully recorded.",
+      });
+
+      router.push(`/patients/${patientId}`);
     } catch (error) {
       console.error('Error saving consultation:', error);
       toast({
@@ -267,6 +297,8 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
         description: "Failed to save consultation. Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -289,6 +321,16 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
           Back to Patient Profile
         </Link>
       </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">
+          {isEditMode ? "Edit Consultation" : "New Consultation"}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {isEditMode
+            ? "Update the consultation notes and orders below."
+            : "Record the patient's consultation details below."}
+        </p>
+      </div>
 
       {/* Consultation Form */}
       <form onSubmit={handleSubmit} className="space-y-3">
@@ -310,14 +352,14 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
               />
               {smartTextMessage("clinicalNotes")}
             </div>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <SoapRewriteButton
                 sourceText={clinicalNotes}
                 onInsert={(soapNote) => setClinicalNotes(soapNote)}
               />
               <ReferralLetterButton
                 sourceText={[clinicalNotes, diagnosis, additionalNotes].filter(Boolean).join("\n\n")}
-                onInsert={(text) => setAdditionalNotes(text)}
+                patient={patient}
               />
             </div>
             <Input
@@ -355,7 +397,9 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
           <Button variant="outline" type="button" asChild>
             <Link href={`/patients/${patientId}`}>Cancel</Link>
           </Button>
-          <Button type="submit">Sign Order</Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? (isEditMode ? "Updating..." : "Saving...") : isEditMode ? "Update Consultation" : "Sign Order"}
+          </Button>
         </div>
       </form>
     </div>
