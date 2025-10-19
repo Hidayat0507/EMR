@@ -63,5 +63,11 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update, delete: if hasAnyRole(['admin', 'billing']);
     }
+
+    // Smart Text snippets
+    match /smartText/{snippetId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if hasAnyRole(['admin', 'doctor']);
+    }
   }
 }

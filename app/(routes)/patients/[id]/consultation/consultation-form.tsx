@@ -1,42 +1,58 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, useMemo, useCallback, FormEvent, KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Patient, getPatientById, Prescription, ProcedureRecord, createConsultation } from "@/lib/models";
+import { getPatientById, Prescription, ProcedureRecord, createConsultation, updateConsultation } from "@/lib/models";
 import { updateQueueStatus } from "@/lib/actions";
 import { safeToISOString } from "@/lib/utils";
 import { OrderComposer } from "@/components/orders/order-composer";
 import { PatientCard, SerializedPatient } from "@/components/patients/patient-card";
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from "next/navigation";
-import { ProcedureItem, getProcedures } from "@/lib/procedures";
+import { getProcedures } from "@/lib/procedures";
 import SoapRewriteButton from "./soap-rewrite-button";
 import ReferralLetterButton from "./referral-letter-button";
+import { executeSmartTextCommand, type SmartTextContext } from "@/lib/smart-text";
+import type { SerializedConsultation } from "@/lib/types";
 
 // Load procedures from DB
 
-export default function ConsultationForm({ patientId, initialPatient }: { patientId: string; initialPatient?: SerializedPatient }) {
+interface ConsultationFormProps {
+  patientId: string;
+  initialPatient?: SerializedPatient;
+  initialConsultation?: SerializedConsultation | null;
+}
+
+export default function ConsultationForm({
+  patientId,
+  initialPatient,
+  initialConsultation = null,
+}: ConsultationFormProps) {
   const [patient, setPatient] = useState<SerializedPatient | null>(initialPatient ?? null);
   const [loading, setLoading] = useState(!initialPatient);
+  const isEditMode = Boolean(initialConsultation?.id);
+  const [smartTextState, setSmartTextState] = useState<{
+    field: string;
+    command: string;
+    status: "loading" | "success" | "error";
+    message?: string;
+  } | null>(null);
   
   // Form state
-  const [chiefComplaint, setChiefComplaint] = useState("");
-  const [diagnosis, setDiagnosis] = useState("");
-  const [procedureEntries, setProcedureEntries] = useState<ProcedureRecord[]>([]);
-  const [additionalNotes, setAdditionalNotes] = useState("");
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [clinicalNotes, setClinicalNotes] = useState(initialConsultation?.chiefComplaint ?? "");
+  const [diagnosis, setDiagnosis] = useState(initialConsultation?.diagnosis ?? "");
+  const [procedureEntries, setProcedureEntries] = useState<ProcedureRecord[]>(
+    initialConsultation?.procedures ? [...initialConsultation.procedures] : []
+  );
+  const [additionalNotes, setAdditionalNotes] = useState(initialConsultation?.notes ?? "");
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>(
+    initialConsultation?.prescriptions ? [...initialConsultation.prescriptions] : []
+  );
+  const [submitting, setSubmitting] = useState(false);
 
   const { toast } = useToast();
   const router = useRouter();
@@ -92,11 +108,141 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
     })();
   }, []);
 
+  const smartTextContext = useMemo<SmartTextContext>(
+    () => ({
+      patientId: patient?.id ?? patientId,
+      patient,
+    }),
+    [patientId, patient]
+  );
+
+  useEffect(() => {
+    if (!smartTextState || smartTextState.status === "loading") {
+      return;
+    }
+
+    const timeout = window.setTimeout(
+      () => setSmartTextState(null),
+      smartTextState.status === "error" ? 6000 : 4000
+    );
+
+    return () => window.clearTimeout(timeout);
+  }, [smartTextState]);
+
+  const smartTextMessage = useCallback(
+    (field: string) => {
+      if (!smartTextState || smartTextState.field !== field) {
+        return null;
+      }
+
+      const tone =
+        smartTextState.status === "error"
+          ? "text-destructive"
+          : smartTextState.status === "success"
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-muted-foreground";
+
+      const text =
+        smartTextState.status === "loading"
+          ? `Smart text ${smartTextState.command} generating…`
+          : smartTextState.message ?? "Smart text updated.";
+
+      return <p className={`text-xs ${tone}`}>{text}</p>;
+    },
+    [smartTextState]
+  );
+
+  const handleSmartTextKeyDown = useCallback(
+    (field: string, setter: (value: string) => void) =>
+      async (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        const triggerKeys = new Set([" ", "Enter", "Tab"]);
+        if (!triggerKeys.has(event.key)) {
+          return;
+        }
+
+        const textarea = event.currentTarget;
+        const selectionStart = textarea.selectionStart ?? 0;
+        const selectionEnd = textarea.selectionEnd ?? 0;
+
+        if (selectionStart !== selectionEnd) {
+          return;
+        }
+
+        const currentValue = textarea.value;
+        const preceding = currentValue.slice(0, selectionStart);
+        const match = preceding.match(/(?:^|\s)(\.[a-zA-Z0-9_-]+)$/);
+
+        if (!match) {
+          return;
+        }
+
+        const commandKey = match[1].toLowerCase();
+        const startIndex = selectionStart - commandKey.length;
+
+        if (startIndex < 0) {
+          return;
+        }
+
+        event.preventDefault();
+        const triggerKey = event.key;
+
+        setSmartTextState({
+          field,
+          command: commandKey,
+          status: "loading",
+        });
+
+        try {
+          const result = await executeSmartTextCommand(commandKey, smartTextContext);
+
+          if (!result) {
+            setSmartTextState({
+              field,
+              command: commandKey,
+              status: "error",
+              message: "Unknown smart text command.",
+            });
+            return;
+          }
+
+          const trailing = triggerKey === "Enter" ? "\n" : triggerKey === " " ? " " : "";
+          const before = currentValue.slice(0, startIndex);
+          const after = currentValue.slice(selectionEnd);
+          const nextValue = `${before}${result.text}${trailing}${after}`;
+
+          setter(nextValue);
+
+          const cursor = before.length + result.text.length + trailing.length;
+          requestAnimationFrame(() => {
+            textarea.selectionStart = cursor;
+            textarea.selectionEnd = cursor;
+          });
+
+          setSmartTextState({
+            field,
+            command: commandKey,
+            status: "success",
+            message: result.meta ?? "Smart text inserted.",
+          });
+        } catch (error) {
+          console.error("Smart text insertion failed:", error);
+          setSmartTextState({
+            field,
+            command: commandKey,
+            status: "error",
+            message: "Failed to insert smart text. Try again.",
+          });
+        }
+      },
+    [smartTextContext]
+  );
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (submitting) return;
 
     // Validate form
-    if (!chiefComplaint || !diagnosis) {
+    if (!clinicalNotes.trim() || !diagnosis.trim()) {
       toast({
         title: "Validation Error",
         description: "Please fill in Chief Complaint and Diagnosis",
@@ -106,32 +252,44 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
     }
 
     try {
+      setSubmitting(true);
       const consultationData = {
-        patientId,
-        date: new Date(), // Consider using server timestamp later
-        chiefComplaint,
+        chiefComplaint: clinicalNotes,
         diagnosis,
         procedures: procedureEntries, // From order composer
         notes: additionalNotes,
         prescriptions: prescriptions // Assuming prescriptions state already holds objects with price?
       };
 
-      const consultationId = await createConsultation(consultationData);
-
-      if (consultationId) {
-        // Update queue status AFTER successful consultation save
-        await updateQueueStatus(patientId, 'meds_and_bills');
-
+      if (isEditMode && initialConsultation?.id) {
+        await updateConsultation(initialConsultation.id, consultationData);
         toast({
-          title: "Consultation Saved",
-          description: "Consultation has been successfully recorded.",
+          title: "Consultation Updated",
+          description: "Your changes have been saved.",
         });
-        
-        // Redirect to patient profile or consultation details
         router.push(`/patients/${patientId}`);
-      } else {
-        throw new Error('Failed to save consultation');
+        return;
       }
+
+      const newConsultationId = await createConsultation({
+        patientId,
+        date: new Date(), // Consider using server timestamp later
+        ...consultationData,
+      });
+
+      if (!newConsultationId) {
+        throw new Error("Failed to save consultation");
+      }
+
+      // Update queue status AFTER successful consultation save
+      await updateQueueStatus(patientId, "meds_and_bills");
+
+      toast({
+        title: "Consultation Saved",
+        description: "Consultation has been successfully recorded.",
+      });
+
+      router.push(`/patients/${patientId}`);
     } catch (error) {
       console.error('Error saving consultation:', error);
       toast({
@@ -139,6 +297,8 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
         description: "Failed to save consultation. Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -161,6 +321,16 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
           Back to Patient Profile
         </Link>
       </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">
+          {isEditMode ? "Edit Consultation" : "New Consultation"}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {isEditMode
+            ? "Update the consultation notes and orders below."
+            : "Record the patient's consultation details below."}
+        </p>
+      </div>
 
       {/* Consultation Form */}
       <form onSubmit={handleSubmit} className="space-y-3">
@@ -171,29 +341,43 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
           </div>
 
           {/* Middle: Chief Complaint & Diagnosis (largest column) */}
-          <div className="md:col-span-6 space-y-2">
-            <Textarea
-              placeholder="Subjective (chief complaint)…"
-              className="min-h-[200px]"
-              value={chiefComplaint}
-              onChange={(e) => setChiefComplaint(e.target.value)}
-            />
-            <div className="flex items-start gap-2 mt-2">
+          <div className="md:col-span-6 space-y-3">
+            <div className="space-y-1">
+              <Textarea
+                placeholder="Clinical notes"
+                className="min-h-[200px]"
+                value={clinicalNotes}
+                onChange={(e) => setClinicalNotes(e.target.value)}
+                onKeyDown={handleSmartTextKeyDown("clinicalNotes", setClinicalNotes)}
+              />
+              {smartTextMessage("clinicalNotes")}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <SoapRewriteButton
-                sourceText={chiefComplaint}
-                onInsert={(soap) => setAdditionalNotes(soap)}
+                sourceText={clinicalNotes}
+                onInsert={(soapNote) => setClinicalNotes(soapNote)}
               />
               <ReferralLetterButton
-                sourceText={[chiefComplaint, diagnosis, additionalNotes].filter(Boolean).join("\n\n")}
-                onInsert={(text) => setAdditionalNotes(text)}
+                sourceText={[clinicalNotes, diagnosis, additionalNotes].filter(Boolean).join("\n\n")}
+                patient={patient}
               />
             </div>
             <Input
               placeholder="Condition (diagnosis)"
-              className="mt-4"
+              className="mt-2"
               value={diagnosis}
               onChange={(e) => setDiagnosis(e.target.value)}
             />
+            <div className="space-y-1">
+              <Textarea
+                placeholder="Additional notes"
+                className="min-h-[160px]"
+                value={additionalNotes}
+                onChange={(e) => setAdditionalNotes(e.target.value)}
+                onKeyDown={handleSmartTextKeyDown("additionalNotes", setAdditionalNotes)}
+              />
+              {smartTextMessage("additionalNotes")}
+            </div>
           </div>
 
           {/* Right: Orders (Meds + Procedures) */}
@@ -213,7 +397,9 @@ export default function ConsultationForm({ patientId, initialPatient }: { patien
           <Button variant="outline" type="button" asChild>
             <Link href={`/patients/${patientId}`}>Cancel</Link>
           </Button>
-          <Button type="submit">Sign Order</Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? (isEditMode ? "Updating..." : "Saving...") : isEditMode ? "Update Consultation" : "Sign Order"}
+          </Button>
         </div>
       </form>
     </div>
