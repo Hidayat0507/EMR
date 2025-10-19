@@ -1,29 +1,27 @@
-import { db } from './firebase';
+import { db } from "./firebase";
 import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  query,
-  where,
   Timestamp,
-  DocumentData,
-  orderBy
-} from 'firebase/firestore';
-import { safeToISOString } from './utils';
-// Import needed types
-import { QueueStatus, BillableConsultation } from './types';
-import { collectionGroup } from 'firebase/firestore';
+  addDoc,
+  collection,
+  collectionGroup,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  updateDoc,
+  where,
+  type DocumentData,
+} from "firebase/firestore";
+import { safeToISOString } from "./utils";
+import { QueueStatus, BillableConsultation } from "./types";
 
-// Types
 export interface Patient {
   id: string;
   fullName: string;
   nric: string;
   dateOfBirth: Date | string;
-  gender: 'male' | 'female' | 'other';
+  gender: "male" | "female" | "other";
   email: string;
   phone: string;
   address: string;
@@ -42,7 +40,7 @@ export interface Patient {
   };
   createdAt: Date | string;
   updatedAt?: Date | string;
-  queueStatus?: QueueStatus; // allow null per shared QueueStatus type
+  queueStatus?: QueueStatus;
   queueAddedAt?: Date | string | null;
 }
 
@@ -61,15 +59,12 @@ export interface Consultation {
   updatedAt?: Date;
 }
 
-// Define type for procedures stored in consultation
 export interface ProcedureRecord {
   name: string;
   price?: number;
-  // Add other fields if needed, e.g., notes specific to this procedure instance
   notes?: string;
-  // Link to master procedure and FHIR coding for interoperable export
   procedureId?: string;
-  codingSystem?: string; // e.g., http://snomed.info/sct
+  codingSystem?: string;
   codingCode?: string;
   codingDisplay?: string;
 }
@@ -83,16 +78,16 @@ export interface Prescription {
   frequency: string;
   duration: string;
   expiryDate?: string;
-  price?: number; // Add optional price field
+  price?: number;
 }
 
 export type AppointmentStatus =
-  | 'scheduled'
-  | 'checked_in'
-  | 'in_progress'
-  | 'completed'
-  | 'cancelled'
-  | 'no_show';
+  | "scheduled"
+  | "checked_in"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "no_show";
 
 export interface Appointment {
   id: string;
@@ -114,109 +109,153 @@ export interface Appointment {
   cancelledAt?: Date | string | null;
 }
 
-// Firebase Collections
-const PATIENTS = 'patients';
-const CONSULTATIONS = 'consultations';
-const REFERRALS = 'referrals';
-const APPOINTMENTS = 'appointments';
-// Subcollections
-const PATIENT_DOCUMENTS = 'documents';
+const PATIENTS = "patients";
+const CONSULTATIONS = "consultations";
+const REFERRALS = "referrals";
+const APPOINTMENTS = "appointments";
+const PATIENT_DOCUMENTS = "documents";
 
-// Helper function to convert Firestore data to our types
-const convertTimestamps = (data: DocumentData): DocumentData => {
-  try {
-    const result = { ...data };
-    const dateFields = [
-      'createdAt',
-      'updatedAt',
-      'date',
-      'lastVisit',
-      'upcomingAppointment',
-      'dateOfBirth',
-      'queueAddedAt',
-      'scheduledAt',
-      'checkInTime',
-      'completedAt',
-      'cancelledAt'
-    ];
+type TimestampInput = Timestamp | Date | string | null | undefined;
 
-    dateFields.forEach(field => {
-      if (result[field]) {
-        if (typeof result[field].toDate === 'function') {
-          try {
-            result[field] = result[field].toDate();
-          } catch (e) {
-            console.error(`Error converting ${field} to date:`, e);
-            result[field] = null;
-          }
-        } else if (typeof result[field] === 'string') {
-          try {
-            const date = new Date(result[field]);
-            if (!isNaN(date.getTime())) {
-              result[field] = date;
-            } else {
-              result[field] = null;
-            }
-          } catch (e) {
-            console.error(`Error parsing ${field} string to date:`, e);
-            result[field] = null;
-          }
-        } else {
-          result[field] = null;
-        }
-      }
-    });
-
-    return result;
-  } catch (error) {
-    console.error('Error in convertTimestamps:', error);
-    return data;
-  }
+type DocWithData = {
+  id: string;
+  data(): DocumentData | undefined;
 };
 
-// Patient functions
+const TIMESTAMP_FIELDS = [
+  "createdAt",
+  "updatedAt",
+  "date",
+  "lastVisit",
+  "upcomingAppointment",
+  "dateOfBirth",
+  "queueAddedAt",
+  "scheduledAt",
+  "checkInTime",
+  "completedAt",
+  "cancelledAt",
+] as const;
+
+const APPOINTMENT_DATE_FIELDS = ["scheduledAt", "checkInTime", "completedAt", "cancelledAt"] as const;
+const APPOINTMENT_DATE_FIELD_SET = new Set<string>(APPOINTMENT_DATE_FIELDS);
+
+function coerceDate(value: TimestampInput): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (value instanceof Timestamp) {
+    return value.toDate();
+  }
+
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+}
+
+function coerceTimestamp(value: TimestampInput): Timestamp | null {
+  const date = coerceDate(value);
+  return date ? Timestamp.fromDate(date) : null;
+}
+
+function convertTimestamps(data: DocumentData): DocumentData {
+  const result: Record<string, unknown> = { ...data };
+
+  for (const field of TIMESTAMP_FIELDS) {
+    if (!(field in result)) {
+      continue;
+    }
+
+    const value = result[field];
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+
+    const coerced = coerceDate(value as TimestampInput);
+    result[field] = coerced ?? null;
+  }
+
+  return result;
+}
+
+function mapDocument<T>(doc: DocWithData): T {
+  const data = doc.data() ?? {};
+  return { id: doc.id, ...convertTimestamps(data) } as T;
+}
+
+function requireTimestamp(value: TimestampInput, field: string): Timestamp {
+  const timestamp = coerceTimestamp(value);
+  if (!timestamp) {
+    throw new Error(`Invalid ${field} provided for appointment.`);
+  }
+  return timestamp;
+}
+
+function toIsoIfPossible(value: Date | string | null | undefined) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof value === "string") {
+    return safeToISOString(value) ?? value;
+  }
+
+  return value;
+}
+
+function serializeQueuePatient(patient: Patient): Patient {
+  return {
+    ...patient,
+    createdAt: toIsoIfPossible(patient.createdAt) ?? patient.createdAt,
+    updatedAt: toIsoIfPossible(patient.updatedAt) ?? patient.updatedAt,
+    queueAddedAt: toIsoIfPossible(patient.queueAddedAt) ?? patient.queueAddedAt ?? null,
+    dateOfBirth: toIsoIfPossible(patient.dateOfBirth) ?? patient.dateOfBirth,
+    lastVisit: toIsoIfPossible(patient.lastVisit) ?? patient.lastVisit,
+    upcomingAppointment: toIsoIfPossible(patient.upcomingAppointment) ?? patient.upcomingAppointment,
+  };
+}
+
 export async function getPatients(): Promise<Patient[]> {
   const snapshot = await getDocs(collection(db, PATIENTS));
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...convertTimestamps(doc.data())
-  } as Patient));
+  return snapshot.docs.map((docSnap) => mapDocument<Patient>(docSnap));
 }
 
 export async function getPatientById(id: string): Promise<Patient | null> {
   const docRef = doc(db, PATIENTS, id);
   const docSnap = await getDoc(docRef);
-  
+
   if (!docSnap.exists()) {
     return null;
   }
-  
-  return {
-    id: docSnap.id,
-    ...convertTimestamps(docSnap.data())
-  } as Patient;
+
+  return mapDocument<Patient>(docSnap);
 }
 
-export async function createPatient(data: Omit<Patient, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+export async function createPatient(data: Omit<Patient, "id" | "createdAt" | "updatedAt">): Promise<string> {
   const now = Timestamp.now();
   const docRef = await addDoc(collection(db, PATIENTS), {
     ...data,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
   });
   return docRef.id;
 }
 
 export async function getAppointments(statuses?: AppointmentStatus[]): Promise<Appointment[]> {
-  const appointmentsQuery = query(collection(db, APPOINTMENTS), orderBy('scheduledAt', 'asc'));
+  const appointmentsQuery = query(collection(db, APPOINTMENTS), orderBy("scheduledAt", "asc"));
   const snapshot = await getDocs(appointmentsQuery);
-  const appointments = snapshot.docs.map(docSnap => ({
-    id: docSnap.id,
-    ...convertTimestamps(docSnap.data())
-  } as Appointment));
+  const appointments = snapshot.docs.map((docSnap) => mapDocument<Appointment>(docSnap));
 
   if (statuses && statuses.length > 0) {
-    return appointments.filter(appointment => appointment.status && statuses.includes(appointment.status));
+    const allowed = new Set(statuses);
+    return appointments.filter((appointment) => appointment.status && allowed.has(appointment.status));
   }
 
   return appointments;
@@ -230,10 +269,7 @@ export async function getAppointmentById(id: string): Promise<Appointment | null
     return null;
   }
 
-  return {
-    id: docSnap.id,
-    ...convertTimestamps(docSnap.data())
-  } as Appointment;
+  return mapDocument<Appointment>(docSnap);
 }
 
 export interface CreateAppointmentInput {
@@ -252,27 +288,19 @@ export interface CreateAppointmentInput {
 
 export async function createAppointment(appointment: CreateAppointmentInput): Promise<string> {
   const now = Timestamp.now();
-  const scheduledDate = appointment.scheduledAt instanceof Date
-    ? appointment.scheduledAt
-    : new Date(appointment.scheduledAt);
-
-  if (isNaN(scheduledDate.getTime())) {
-    throw new Error('Invalid scheduledAt date provided for appointment.');
-  }
-
-  const scheduledTimestamp = Timestamp.fromDate(scheduledDate);
+  const scheduledTimestamp = requireTimestamp(appointment.scheduledAt, "scheduledAt");
 
   const payload: Record<string, unknown> = {
     patientId: appointment.patientId,
     patientName: appointment.patientName,
-    patientContact: appointment.patientContact ?? '',
+    patientContact: appointment.patientContact ?? "",
     clinician: appointment.clinician,
     reason: appointment.reason,
-    type: appointment.type ?? '',
-    location: appointment.location ?? '',
-    notes: appointment.notes ?? '',
+    type: appointment.type ?? "",
+    location: appointment.location ?? "",
+    notes: appointment.notes ?? "",
     durationMinutes: appointment.durationMinutes ?? null,
-    status: appointment.status ?? 'scheduled',
+    status: appointment.status ?? "scheduled",
     scheduledAt: scheduledTimestamp,
     createdAt: now,
     updatedAt: now,
@@ -287,7 +315,7 @@ export async function createAppointment(appointment: CreateAppointmentInput): Pr
       updatedAt: Timestamp.now(),
     });
   } catch (error) {
-    console.error('Failed to update patient upcoming appointment after scheduling:', error);
+    console.error("Failed to update patient upcoming appointment after scheduling:", error);
   }
 
   return docRef.id;
@@ -297,65 +325,60 @@ export async function updateAppointment(id: string, data: Partial<Appointment>):
   const docRef = doc(db, APPOINTMENTS, id);
   const updatePayload: Record<string, unknown> = {};
 
-  const dateFields: Array<keyof Appointment> = ['scheduledAt', 'checkInTime', 'completedAt', 'cancelledAt'];
-
   for (const [key, value] of Object.entries(data)) {
-    if (value === undefined) continue;
+    if (value === undefined || key === "id" || key === "createdAt") {
+      continue;
+    }
 
-    if (dateFields.includes(key as keyof Appointment)) {
+    if (APPOINTMENT_DATE_FIELD_SET.has(key)) {
       if (value === null) {
         updatePayload[key] = null;
         continue;
       }
 
-      const dateValue = value instanceof Date ? value : new Date(value as string);
-      if (isNaN(dateValue.getTime())) {
+      const timestamp = coerceTimestamp(value as TimestampInput);
+      if (!timestamp) {
         console.warn(`Skipping invalid date field ${key} when updating appointment ${id}`);
         continue;
       }
-      updatePayload[key] = Timestamp.fromDate(dateValue);
-    } else if (key !== 'id' && key !== 'createdAt') {
-      updatePayload[key] = value;
+
+      updatePayload[key] = timestamp;
+      continue;
     }
+
+    updatePayload[key] = value;
   }
 
   updatePayload.updatedAt = Timestamp.now();
 
-  await updateDoc(docRef, updatePayload as { [x: string]: any });
+  await updateDoc(docRef, updatePayload as Record<string, unknown>);
 }
 
-// Consultation functions
 export async function getConsultationsByPatientId(patientId: string): Promise<Consultation[]> {
-  const q = query(
-    collection(db, CONSULTATIONS),
-    where("patientId", "==", patientId)
-  );
-  
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...convertTimestamps(doc.data())
-  } as Consultation));
+  const consultationQuery = query(collection(db, CONSULTATIONS), where("patientId", "==", patientId));
+  const snapshot = await getDocs(consultationQuery);
+  return snapshot.docs.map((docSnap) => mapDocument<Consultation>(docSnap));
 }
 
 export async function getConsultationById(id: string): Promise<Consultation | null> {
   const docRef = doc(db, CONSULTATIONS, id);
   const docSnap = await getDoc(docRef);
-  
+
   if (!docSnap.exists()) {
     return null;
   }
-  
-  return {
-    id: docSnap.id,
-    ...convertTimestamps(docSnap.data())
-  } as Consultation;
+
+  return mapDocument<Consultation>(docSnap);
 }
 
-export async function createConsultation(consultation: Omit<Consultation, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+export async function createConsultation(
+  consultation: Omit<Consultation, "id" | "createdAt" | "updatedAt">
+): Promise<string> {
   const now = Timestamp.now();
   const dataToSave = { ...consultation, createdAt: now, updatedAt: now };
-  if (!dataToSave.date) dataToSave.date = now.toDate();
+  if (!dataToSave.date) {
+    dataToSave.date = now.toDate();
+  }
 
   const docRef = await addDoc(collection(db, CONSULTATIONS), dataToSave);
   return docRef.id;
@@ -365,57 +388,34 @@ export async function updateConsultation(id: string, data: Partial<Consultation>
   const docRef = doc(db, CONSULTATIONS, id);
   await updateDoc(docRef, {
     ...data,
-    updatedAt: Timestamp.now()
+    updatedAt: Timestamp.now(),
   });
 }
 
 export async function getTodaysQueue(): Promise<Patient[]> {
-  // Calculate the start and end of the current day for filtering
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  // Convert to Firestore Timestamps for the query
-  const todayTimestamp = Timestamp.fromDate(today);
-  const tomorrowTimestamp = Timestamp.fromDate(tomorrow);
-
-  // Query for patients with an active status added today
   const q = query(
     collection(db, PATIENTS),
     where("queueStatus", "in", ["waiting", "in_consultation", "completed", "meds_and_bills"]),
-    where("queueAddedAt", ">=", todayTimestamp), // Added today condition
-    where("queueAddedAt", "<", tomorrowTimestamp), // Added today condition
-    orderBy("queueAddedAt", "asc") // Order by when they were added
+    where("queueAddedAt", ">=", Timestamp.fromDate(today)),
+    where("queueAddedAt", "<", Timestamp.fromDate(tomorrow)),
+    orderBy("queueAddedAt", "asc")
   );
 
   const querySnapshot = await getDocs(q);
-
-  // Map the documents directly from the new query result
-  const patientsInQueue = querySnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...convertTimestamps(doc.data()) // Still convert timestamps for the client
-  } as Patient));
-
-  // Convert Timestamps to ISO strings before returning, as the client components might expect this format
-  return patientsInQueue.map(patient => ({
-    ...patient,
-    // Ensure all relevant date/timestamp fields are converted using the imported helper
-    createdAt: patient.createdAt instanceof Date ? patient.createdAt.toISOString() : safeToISOString(patient.createdAt),
-    updatedAt: patient.updatedAt instanceof Date ? patient.updatedAt.toISOString() : safeToISOString(patient.updatedAt),
-    queueAddedAt: patient.queueAddedAt instanceof Date ? patient.queueAddedAt.toISOString() : safeToISOString(patient.queueAddedAt),
-    dateOfBirth: patient.dateOfBirth instanceof Date ? patient.dateOfBirth.toISOString() : safeToISOString(patient.dateOfBirth),
-    lastVisit: patient.lastVisit instanceof Date ? patient.lastVisit.toISOString() : safeToISOString(patient.lastVisit),
-    upcomingAppointment: patient.upcomingAppointment instanceof Date ? patient.upcomingAppointment.toISOString() : safeToISOString(patient.upcomingAppointment),
-  })) as Patient[]; // Cast might need adjustment based on Patient type def
+  return querySnapshot.docs.map((docSnap) => serializeQueuePatient(mapDocument<Patient>(docSnap)));
 }
 
 export async function addPatientToQueue(patientId: string): Promise<void> {
   const docRef = doc(db, PATIENTS, patientId);
   await updateDoc(docRef, {
-    queueStatus: 'waiting',
+    queueStatus: "waiting",
     queueAddedAt: Timestamp.now(),
-    updatedAt: Timestamp.now()
+    updatedAt: Timestamp.now(),
   });
 }
 
@@ -424,89 +424,66 @@ export async function removePatientFromQueue(patientId: string): Promise<void> {
   await updateDoc(docRef, {
     queueStatus: null,
     queueAddedAt: null,
-    updatedAt: Timestamp.now()
+    updatedAt: Timestamp.now(),
   });
 }
 
-// Function to fetch consultations by status and include patient details
 export async function getConsultationsWithDetails(statuses: QueueStatus[]): Promise<BillableConsultation[]> {
   try {
-    if (!statuses || !Array.isArray(statuses) || statuses.length === 0) {
+    const validStatuses = statuses.filter((status): status is Exclude<QueueStatus, null> => Boolean(status));
+    if (validStatuses.length === 0) {
       return [];
     }
 
-    // 1. Fetch Patients with relevant statuses
-    const patientsRef = collection(db, PATIENTS);
-    const validStatuses = statuses.filter(status => status !== null);
-    const patientsQuery = query(patientsRef, where('queueStatus', 'in', validStatuses));
-    const patientSnapshots = await getDocs(patientsQuery);
-    const relevantPatients = new Map<string, Patient>();
-    
-    patientSnapshots.forEach(doc => {
-      const data = doc.data();
-      if (data) {
-        relevantPatients.set(doc.id, { 
-          id: doc.id, 
-          ...convertTimestamps(data) 
-        } as Patient);
-      }
-    });
+    const patientsSnapshot = await getDocs(
+      query(collection(db, PATIENTS), where("queueStatus", "in", validStatuses))
+    );
+    const patientsById = new Map<string, Patient>(
+      patientsSnapshot.docs.map((docSnap) => {
+        const patient = mapDocument<Patient>(docSnap);
+        return [patient.id, patient];
+      })
+    );
 
-    if (relevantPatients.size === 0) {
+    if (patientsById.size === 0) {
       return [];
     }
 
-    // 2. Fetch all consultations
-    const allConsultationsRef = collection(db, 'consultations');
-    const allConsultationsSnap = await getDocs(allConsultationsRef);
-    const billableConsultations: BillableConsultation[] = [];
+    const consultationsSnapshot = await getDocs(collection(db, CONSULTATIONS));
 
-    allConsultationsSnap.forEach(doc => {
-      const data = doc.data();
-      if (data) {
-        const consultationData = { 
-          id: doc.id, 
-          ...convertTimestamps(data) 
-        } as Consultation;
-        
-        const patientData = relevantPatients.get(consultationData.patientId);
+    const consultations = consultationsSnapshot.docs
+      .map((docSnap) => mapDocument<Consultation>(docSnap))
+      .filter((consultation) => patientsById.has(consultation.patientId))
+      .map((consultation) => {
+        const patient = patientsById.get(consultation.patientId)!;
+        return {
+          id: consultation.id,
+          patientId: consultation.patientId,
+          patientFullName: patient.fullName,
+          queueStatus: patient.queueStatus,
+          date: safeToISOString(consultation.date) ?? null,
+          createdAt: safeToISOString(consultation.createdAt) ?? null,
+          updatedAt: safeToISOString(consultation.updatedAt) ?? null,
+          type: consultation.type,
+          doctor: consultation.doctor,
+          chiefComplaint: consultation.chiefComplaint,
+          diagnosis: consultation.diagnosis,
+          procedures: consultation.procedures,
+          notes: consultation.notes,
+          prescriptions: consultation.prescriptions,
+        } satisfies BillableConsultation;
+      });
 
-        if (patientData) {
-          const billableEntry = {
-            id: consultationData.id,
-            patientId: consultationData.patientId,
-            patientFullName: patientData.fullName,
-            queueStatus: patientData.queueStatus,
-            date: safeToISOString(consultationData.date),
-            createdAt: safeToISOString(consultationData.createdAt),
-            updatedAt: safeToISOString(consultationData.updatedAt),
-            type: consultationData.type || null,
-            doctor: consultationData.doctor || null,
-            chiefComplaint: consultationData.chiefComplaint,
-            diagnosis: consultationData.diagnosis,
-            procedures: consultationData.procedures || [],
-            notes: consultationData.notes || null,
-            prescriptions: consultationData.prescriptions || [],
-          } as BillableConsultation;
-
-          billableConsultations.push(billableEntry);
-        }
-      }
-    });
-
-    // Sort results by date
-    return billableConsultations.sort((a, b) => {
+    return consultations.sort((a, b) => {
       const dateA = a.date ? new Date(a.date).getTime() : 0;
       const dateB = b.date ? new Date(b.date).getTime() : 0;
       return dateB - dateA;
     });
   } catch (error) {
-    console.error('Error in getConsultationsWithDetails:', error);
+    console.error("Error in getConsultationsWithDetails:", error);
     return [];
   }
 }
-
-// --- Referral Letters ---
 
 export interface Referral {
   id?: string;
@@ -515,7 +492,7 @@ export interface Referral {
   specialty: string;
   facility: string;
   doctorName?: string;
-  urgency?: 'routine' | 'urgent' | 'emergency';
+  urgency?: "routine" | "urgent" | "emergency";
   reason?: string;
   clinicalInfo?: string;
   letterText: string;
@@ -523,25 +500,29 @@ export interface Referral {
   updatedAt?: Date;
 }
 
-export async function createReferral(referral: Omit<Referral, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+export async function createReferral(referral: Omit<Referral, "id" | "createdAt" | "updatedAt">): Promise<string> {
   const now = Timestamp.now();
   const dataToSave = { ...referral, createdAt: now, updatedAt: now };
-  if (!dataToSave.date) dataToSave.date = now.toDate();
+  if (!dataToSave.date) {
+    dataToSave.date = now.toDate();
+  }
   const docRef = await addDoc(collection(db, REFERRALS), dataToSave);
   return docRef.id;
 }
 
 export async function getReferralsByPatientId(patientId: string): Promise<Referral[]> {
-  const q = query(collection(db, REFERRALS), where('patientId', '==', patientId));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(d => ({ id: d.id, ...convertTimestamps(d.data()) } as Referral));
+  const referralQuery = query(collection(db, REFERRALS), where("patientId", "==", patientId));
+  const snapshot = await getDocs(referralQuery);
+  return snapshot.docs.map((docSnap) => mapDocument<Referral>(docSnap));
 }
 
 export async function getReferralById(id: string): Promise<Referral | null> {
   const docRef = doc(db, REFERRALS, id);
   const docSnap = await getDoc(docRef);
-  if (!docSnap.exists()) return null;
-  return { id: docSnap.id, ...convertTimestamps(docSnap.data()) } as Referral;
+  if (!docSnap.exists()) {
+    return null;
+  }
+  return mapDocument<Referral>(docSnap);
 }
 
 export async function updateReferral(id: string, data: Partial<Referral>): Promise<void> {
@@ -549,36 +530,29 @@ export async function updateReferral(id: string, data: Partial<Referral>): Promi
   await updateDoc(docRef, { ...data, updatedAt: Timestamp.now() });
 }
 
-// --- FHIR Integration --- REMOVED
-
-// --- Patient Documents ---
-
 export interface PatientDocument {
   id: string;
   fileName: string;
   contentType: string;
   size: number;
-  storagePath: string; // path in Firebase Storage
-  downloadUrl: string; // signed URL for viewing
+  storagePath: string;
+  downloadUrl: string;
   uploadedAt: Date | string;
-  uploadedBy?: string | null; // uid or email if you track it
+  uploadedBy?: string | null;
 }
 
-// List documents for a patient (subcollection: patients/{id}/documents)
 export async function getPatientDocuments(patientId: string): Promise<PatientDocument[]> {
-  const col = collection(db, PATIENTS, patientId, PATIENT_DOCUMENTS);
-  const snap = await getDocs(col);
-  return snap.docs.map(d => ({ id: d.id, ...convertTimestamps(d.data()) } as PatientDocument));
+  const documentsCollection = collection(db, PATIENTS, patientId, PATIENT_DOCUMENTS);
+  const snapshot = await getDocs(documentsCollection);
+  return snapshot.docs.map((docSnap) => mapDocument<PatientDocument>(docSnap));
 }
 
-// Optionally: list all documents across patients (collection group query)
 export async function getAllPatientDocuments(): Promise<(PatientDocument & { patientId: string })[]> {
-  const cg = collectionGroup(db, PATIENT_DOCUMENTS);
-  const snap = await getDocs(cg);
-  return snap.docs.map(d => {
-    // Extract patientId from the path: patients/{patientId}/documents/{docId}
-    const segments = d.ref.path.split('/');
-    const patientId = segments.length >= 2 ? segments[1] : '';
-    return { id: d.id, patientId, ...convertTimestamps(d.data()) } as PatientDocument & { patientId: string };
+  const snapshot = await getDocs(collectionGroup(db, PATIENT_DOCUMENTS));
+  return snapshot.docs.map((docSnap) => {
+    const document = mapDocument<PatientDocument>(docSnap);
+    const segments = docSnap.ref.path.split("/");
+    const patientId = segments.length >= 2 ? segments[1] : "";
+    return { ...document, patientId };
   });
 }
