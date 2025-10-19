@@ -13,6 +13,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import Image from 'next/image';
+import { SmartTextManager } from '@/components/settings/smart-text-manager';
 
 // Placeholder for user data - replace with actual data fetching/auth context later
 interface UserSettings {
@@ -230,6 +231,18 @@ export default function SettingsPage() {
               Save Organization
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Smart Text</CardTitle>
+          <CardDescription>Manage custom text shortcuts for clinical notes.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SmartTextManager />
         </CardContent>
       </Card>
 
