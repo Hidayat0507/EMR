@@ -13,4 +13,6 @@ export type BillableConsultation = Omit<Consultation, 'date' | 'createdAt' | 'up
   updatedAt: string | null;
 };
 
-// Add other shared types here as needed 
+// Add other shared types here as needed
+
+// SOAP workflow types removed as flow now returns plain-text SOAP only

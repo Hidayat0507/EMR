@@ -2,68 +2,96 @@ import { NextRequest } from "next/server";
 import { adminAuth } from "@/lib/firebase-admin";
 import { isRateLimited } from "@/lib/rate-limit";
 import { soapRewriteBodySchema } from "@/lib/validation";
-
-// Expected environment variable that points to your n8n webhook URL
-// Example: https://your-n8n-host/webhook/soap-rewrite
-const N8N_SOAP_WEBHOOK_URL = process.env.N8N_SOAP_WEBHOOK_URL;
+import { createChatCompletion, type ChatMessage } from "@/lib/server/openrouter";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = req.cookies.get('emr_session')?.value;
-    if (!session) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-    try { await adminAuth.verifySessionCookie(session, true); } catch { return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }); }
+    const session = req.cookies.get("emr_session")?.value;
+    if (!session) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
 
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    try {
+      await adminAuth.verifySessionCookie(session, true);
+    } catch {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
     if (isRateLimited(`soap:${ip}`, 30, 60_000)) {
       return new Response(JSON.stringify({ error: "Too Many Requests" }), { status: 429 });
     }
-    const parsed = soapRewriteBodySchema.safeParse(await req.json());
-    if (!parsed.success) return new Response(JSON.stringify({ error: "Invalid body" }), { status: 400 });
-    const { text } = parsed.data;
-    if (!N8N_SOAP_WEBHOOK_URL) {
-      return new Response(JSON.stringify({ error: "Missing N8N_SOAP_WEBHOOK_URL env" }), { status: 500 });
+
+    const body = await req.json();
+    const parsed = soapRewriteBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return new Response(JSON.stringify({ error: "Invalid body" }), { status: 400 });
     }
 
-    const bearer = process.env.N8N_SHARED_SECRET;
-    const n8nResponse = await fetch(N8N_SOAP_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
-      body: JSON.stringify({ text }),
-      // Consider adding auth headers if your n8n instance requires them
-    });
+    const { text, model } = normalizeInputs(parsed.data);
 
-    const data = await n8nResponse.json().catch(() => ({}));
-    if (!n8nResponse.ok) {
-      return new Response(
-        JSON.stringify({ error: "n8n error", status: n8nResponse.status, data }),
-        { status: 502 }
-      );
-    }
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content:
+          "You are an EMR documentation assistant. Rewrite the input into a structured SOAP note with four labeled sections only: 'Subjective:', 'Objective:', 'Assessment:', and 'Plan:'. Keep it concise and clinically appropriate. No extra commentary.",
+      },
+      {
+        role: "user",
+        content: text,
+      },
+    ];
 
-    // Accept either a single 'note' or a structured SOAP object
-    let note: string | null = null;
-    if (data && typeof data === "object") {
-      if (typeof data.note === "string") {
-        note = data.note;
-      } else if (data.subjective || data.objective || data.assessment || data.plan) {
-        const parts: string[] = [];
-        if (data.subjective) parts.push(`S: ${data.subjective}`);
-        if (data.objective) parts.push(`O: ${data.objective}`);
-        if (data.assessment) parts.push(`A: ${data.assessment}`);
-        if (data.plan) parts.push(`P: ${data.plan}`);
-        note = parts.join("\n\n");
-      }
-    }
+    const completion = await createChatCompletion(messages, { model, temperature: 0.3, maxTokens: 1200 });
+    const content = completion.choices?.[0]?.message?.content?.trim() || "";
 
-    if (!note) {
-      // Fallback: echo original text prefixed with S: if workflow didn't return expected shape
-      note = `S: ${text}`;
-    }
+    // Log generated SOAP output to server terminal for debugging/inspection
+    try {
+      console.log("[soap-rewrite] model:", completion.model);
+      console.log("[soap-rewrite] note:\n" + (content || "<empty>"));
+    } catch {}
 
-    return new Response(JSON.stringify({ note }), { status: 200 });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: "Unexpected error" }), { status: 500 });
+    const finalNote = content && content.trim().length > 0 ? content : buildFallbackSoap(text);
+
+    return new Response(
+      JSON.stringify({
+        note: finalNote,
+        modelUsed: completion.model,
+      }),
+      { status: 200 }
+    );
+  } catch (error: any) {
+    console.error("[soap-rewrite] Unexpected error", error);
+    const message = error?.message || "Unexpected error";
+    const status = error?.code === "MISSING_API_KEY" ? 500 : 500;
+    return new Response(JSON.stringify({ error: message }), { status });
   }
 }
 
+function normalizeInputs(data: any) {
+  if ("text" in data) {
+    return {
+      text: String(data.text ?? ""),
+      model: data.model as string | undefined,
+    };
+  }
+  // Back-compat: accept subjective/objective but combine into a single text blob
+  const subjective = typeof data.subjective === "string" ? data.subjective : "";
+  const objective = typeof data.objective === "string" ? data.objective : "";
+  const text = [subjective, objective].filter(Boolean).join("\n\n");
+  return {
+    text,
+    model: data.model as string | undefined,
+  };
+}
 
+function buildFallbackSoap(text: string): string {
+  const body = (text || "").trim() || "No clinical notes provided.";
+  const parts = [
+    `Subjective:\n${body}`,
+    "Objective:\nN/A",
+    "Assessment:\nPending clinician assessment.",
+    "Plan:\nPending clinician plan.",
+  ];
+  return parts.join("\n\n");
+}

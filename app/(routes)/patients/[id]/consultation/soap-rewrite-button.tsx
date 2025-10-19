@@ -2,61 +2,71 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 
 interface SoapRewriteButtonProps {
   sourceText: string;
-  onInsert: (soapText: string) => void;
+  onInsert: (note: string) => void;
 }
+
+type WorkflowResponse = {
+  note: string;
+  modelUsed: string;
+};
 
 export default function SoapRewriteButton({ sourceText, onInsert }: SoapRewriteButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  // No local preview; we write directly to the clinical notes field
 
-  const handleRewrite = async () => {
+  const canRun = Boolean(sourceText.trim());
+
+  const handleRun = async () => {
+    if (!canRun) return;
+
     setLoading(true);
     setError(null);
-    setResult(null);
+    
+
     try {
       const res = await fetch("/api/soap-rewrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: sourceText }),
       });
-      const data = await res.json();
+      const data: WorkflowResponse = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Failed to rewrite");
+        throw new Error((data as any)?.error || "Failed to enhance SOAP note");
       }
-      setResult(data.note);
-    } catch (e: any) {
-      setError(e.message || "Unexpected error");
+
+      if (!data.note || !data.note.trim()) {
+        setError("No structured content generated. Try adding more detail.");
+        return;
+      }
+
+      // Auto-render into the target field
+      onInsert(data.note);
+    } catch (err: any) {
+      setError(err?.message || "Unexpected error");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-2">
-      <Button type="button" variant="outline" size="sm" onClick={handleRewrite} disabled={loading || !sourceText.trim()}>
-        {loading ? "Rewriting…" : "Rewrite the note"}
-      </Button>
-      {error && <div className="text-xs text-destructive">{error}</div>}
-      {result && (
-        <div className="space-y-2">
-          <Textarea value={result} readOnly className="min-h-[120px]" />
-          <div className="flex gap-2 justify-end">
-            <Button type="button" variant="secondary" size="sm" onClick={() => setResult(null)}>
-              Clear
-            </Button>
-            <Button type="button" size="sm" onClick={() => onInsert(result)}>
-              Insert into Notes
-            </Button>
-          </div>
+    <div className="space-y-3 rounded-md border border-dashed p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">SOAP Enhancement</h3>
+          <p className="text-xs text-muted-foreground">Generate structured SOAP from your clinical notes.</p>
         </div>
-      )}
+        <Button type="button" variant="outline" size="sm" disabled={!canRun || loading} onClick={handleRun}>
+          {loading ? "Generating…" : "Generate SOAP"}
+        </Button>
+      </div>
+
+      {error && <div className="text-xs text-destructive">{error}</div>}
+
+      {/* No preview area; content is inserted directly on success */}
     </div>
   );
 }
-
-

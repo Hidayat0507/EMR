@@ -3,9 +3,17 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { PDFViewer, pdf, Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { pdf, Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
+import { db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 interface ReferralLetterButtonProps {
   sourceText: string;
@@ -17,6 +25,7 @@ export default function ReferralLetterButton({ sourceText, onInsert }: ReferralL
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const styles = StyleSheet.create({
     page: { padding: 32, fontSize: 12, color: '#111827' },
@@ -38,47 +47,76 @@ export default function ReferralLetterButton({ sourceText, onInsert }: ReferralL
   }, []);
 
   const handleGenerate = async () => {
-    setLoading(true);
     setError(null);
-    setResult(null);
-    try {
-      const res = await fetch("/api/referral-letter", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: sourceText }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to generate referral letter");
-      }
-      setResult(data.letter);
-    } catch (e: any) {
-      setError(e.message || "Unexpected error");
-    } finally {
-      setLoading(false);
-    }
+    setResult(sourceText);
+    setOpen(true);
   };
 
   return (
     <div className="space-y-2">
-      <Button type="button" variant="outline" size="sm" onClick={handleGenerate} disabled={loading || !sourceText.trim()}>
-        {loading ? "Generating…" : "Generate referral letter"}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={handleGenerate}
+        disabled={!sourceText.trim()}
+      >
+        Generate referral letter
       </Button>
       {error && <div className="text-xs text-destructive">{error}</div>}
-      {result && (
-        <div className="space-y-2">
-          <Textarea value={result} readOnly className="min-h-[120px]" />
-          <div className="flex gap-2 justify-end">
-            <Button type="button" variant="secondary" size="sm" onClick={() => setResult(null)}>
-              Clear
+
+      <Dialog
+        open={open}
+        onOpenChange={(value) => {
+          setOpen(value);
+          if (!value) {
+            setResult(null);
+            setError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Referral Letter Draft</DialogTitle>
+            <DialogDescription>
+              Review the generated letter. You can insert it into the consultation notes or download a PDF copy.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={result ?? ""}
+            onChange={(event) => setResult(event.target.value)}
+            className="min-h-[300px]"
+          />
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setResult(null);
+                setOpen(false);
+              }}
+            >
+              Close
             </Button>
-            <Button type="button" size="sm" onClick={() => onInsert(result)}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (!result) return;
+                onInsert(result);
+                setOpen(false);
+              }}
+              disabled={!result}
+            >
               Insert into Notes
             </Button>
             <Button
               type="button"
               size="sm"
+              disabled={!result}
               onClick={async () => {
+                if (!result) return;
                 const blob = await pdf(
                   <Document>
                     <Page size="A4" style={styles.page}>
@@ -94,20 +132,18 @@ export default function ReferralLetterButton({ sourceText, onInsert }: ReferralL
                   </Document>
                 ).toBlob();
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
+                const a = document.createElement("a");
                 a.href = url;
-                a.download = 'referral-letter.pdf';
+                a.download = "referral-letter.pdf";
                 a.click();
                 URL.revokeObjectURL(url);
               }}
             >
               Download PDF
             </Button>
-          </div>
-        </div>
-      )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-
