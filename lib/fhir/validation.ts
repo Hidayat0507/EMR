@@ -42,6 +42,9 @@ export function validateFhirResource(resource: any): ValidationResult {
     case 'ServiceRequest':
       validateServiceRequest(resource, errors, warnings);
       break;
+    case 'DocumentReference':
+      validateDocumentReference(resource, errors, warnings);
+      break;
     default:
       warnings.push(`No specific validation for ${resource.resourceType}`);
   }
@@ -246,6 +249,44 @@ function validateServiceRequest(servReq: any, errors: string[], warnings: string
 }
 
 /**
+ * Validate DocumentReference resource
+ */
+function validateDocumentReference(resource: any, errors: string[], warnings: string[]): void {
+  if (!resource.status) {
+    errors.push('DocumentReference: Missing required field: status');
+  }
+
+  if (!resource.type) {
+    errors.push('DocumentReference: Missing required field: type');
+  }
+
+  if (!resource.subject?.reference) {
+    errors.push('DocumentReference: Missing required field: subject');
+  }
+
+  if (!resource.content || resource.content.length === 0) {
+    errors.push('DocumentReference: Missing required field: content');
+  } else {
+    resource.content.forEach((c: any, idx: number) => {
+      if (!c.attachment) {
+        errors.push(`DocumentReference: content[${idx}] missing attachment`);
+      } else {
+        if (!c.attachment.contentType) {
+          warnings.push(`DocumentReference: content[${idx}] missing attachment.contentType`);
+        }
+        if (!c.attachment.url && !c.attachment.data) {
+          errors.push(`DocumentReference: content[${idx}] attachment missing url or data`);
+        }
+      }
+    });
+  }
+
+  if (!resource.author || resource.author.length === 0) {
+    warnings.push('DocumentReference: Missing recommended field: author');
+  }
+}
+
+/**
  * Validate a FHIR reference
  */
 function validateReference(reference: any, fieldName: string, errors: string[]) {
@@ -272,7 +313,6 @@ export function logValidation(resourceType: string, result: ValidationResult) {
     console.warn(`⚠️  ${resourceType} warnings:`, result.warnings);
   }
 }
-
 
 
 

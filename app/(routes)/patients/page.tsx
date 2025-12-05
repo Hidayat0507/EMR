@@ -69,7 +69,7 @@ export default function PatientsPage() {
             const lastVisit = (p as any).lastVisit ? new Date((p as any).lastVisit) : null;
             return lastVisit && lastVisit >= weekStart;
           }).length,
-          inQueue: data.filter((p) => (p as any).queueStatus === 'waiting').length
+          inQueue: data.filter((p) => ['arrived', 'waiting', 'in_consultation'].includes((p as any).queueStatus)).length
         });
       } catch (err) {
         console.error('Error loading patients from Medplum:', err);
@@ -84,26 +84,26 @@ export default function PatientsPage() {
 
   const handleAddToQueue = async (patient: Patient) => {
     try {
-      const res = await fetch('/api/queue', {
+      const res = await fetch('/api/check-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ patientId: patient.id }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to add to queue');
+        throw new Error(err.error || 'Failed to check in');
       }
       toast({
-        title: "Added to Queue",
-        description: `${patient.fullName} has been added to the queue.`,
+        title: "Checked in",
+        description: `${patient.fullName} has been marked as arrived.`,
       });
       // Refresh the page to update the queue status
       window.location.reload();
     } catch (error) {
-      console.error('Error adding to queue:', error);
+      console.error('Error checking in:', error);
       toast({
         title: "Error",
-        description: "Failed to add patient to queue. Please try again.",
+        description: "Failed to check patient in. Please try again.",
         variant: "destructive"
       });
     }
@@ -268,6 +268,11 @@ export default function PatientsPage() {
                               <Clock className="h-3 w-3" />
                               In Queue
                             </Badge>
+                          ) : (patient as any).queueStatus === 'arrived' ? (
+                            <Badge variant="outline" className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Arrived
+                            </Badge>
                           ) : (patient as any).lastVisit ? (
                             <Badge variant="outline">Active</Badge>
                           ) : (
@@ -299,9 +304,16 @@ export default function PatientsPage() {
                                   Remove from Queue
                                 </DropdownMenuItem>
                               ) : (
-                                <DropdownMenuItem onClick={() => handleAddToQueue(patient)}>
-                                  Add to Queue
-                                </DropdownMenuItem>
+                                <>
+                                  <DropdownMenuItem onClick={() => handleAddToQueue(patient)}>
+                                    Check In
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/patients/${patient.id}/triage`}>
+                                      Go to Triage
+                                    </Link>
+                                  </DropdownMenuItem>
+                                </>
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>

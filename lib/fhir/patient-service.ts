@@ -12,6 +12,7 @@ import type {
   MedicationStatement,
 } from '@medplum/fhirtypes';
 import { QueueStatus, TriageData, VitalSigns } from '../types';
+import { TRIAGE_EXTENSION_URL } from './structure-definitions';
 
 // Local Patient interface that matches your app
 export interface PatientData {
@@ -49,8 +50,6 @@ export interface SavedPatient extends PatientData {
 let medplumClient: MedplumClient | undefined;
 let medplumInitPromise: Promise<MedplumClient> | undefined;
 
-// Custom extension URL to store triage/queue data on Patient
-const TRIAGE_EXTENSION_URL = 'https://ucc.emr/triage';
 const CLINIC_IDENTIFIER_SYSTEM = 'clinic';
 
 type Extension = { url: string;[key: string]: any };
@@ -65,9 +64,20 @@ function addClinicIdentifier(identifiers: { system?: string; value?: string }[] 
   return nextIdentifiers;
 }
 
-function matchesClinic(resource: { identifier?: { system?: string; value?: string }[] }, clinicId?: string) {
+function matchesClinic(resource: { identifier?: { system?: string; value?: string }[]; managingOrganization?: { reference?: string } }, clinicId?: string) {
   if (!clinicId) return true;
-  return resource.identifier?.some((id) => id.system === CLINIC_IDENTIFIER_SYSTEM && id.value === clinicId);
+  const identifierMatch = resource.identifier?.some((id) => id.system === CLINIC_IDENTIFIER_SYSTEM && id.value === clinicId);
+  const orgRef = resource.managingOrganization?.reference;
+  const organizationMatch = orgRef ? orgRef === `Organization/${clinicId}` : false;
+  return Boolean(identifierMatch || organizationMatch);
+}
+
+function addManagingOrganization<T extends { [key: string]: any }>(resource: T, clinicId?: string): T {
+  if (!clinicId) return resource;
+  return {
+    ...resource,
+    managingOrganization: { reference: `Organization/${clinicId}` },
+  };
 }
 
 /**
@@ -281,7 +291,7 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     }
   }
 
-  const fhirPatient: FHIRPatient = {
+  const basePatient: FHIRPatient = {
     resourceType: 'Patient',
     active: true,  // FHIR compliance: mark patient as active
     identifier: addClinicIdentifier([
@@ -314,6 +324,8 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
       },
     ] : undefined,
   };
+
+  const fhirPatient = addManagingOrganization(basePatient, clinicId);
 
   let savedPatient: FHIRPatient;
   if (existingPatient) {
@@ -517,7 +529,7 @@ export async function searchPatientsInMedplum(query: string, clinicId?: string):
     const patients = await medplum.searchResources('Patient', {
       _query: query,
       _count: '50',
-      ...(clinicId ? { identifier: `${CLINIC_IDENTIFIER_SYSTEM}|${clinicId}` } : {}),
+      ...(clinicId ? { identifier: `${CLINIC_IDENTIFIER_SYSTEM}|${clinicId}`, organization: `Organization/${clinicId}` } : {}),
     });
 
     return patients
@@ -539,7 +551,7 @@ export async function getAllPatientsFromMedplum(limit = 100, clinicId?: string):
     const patients = await medplum.searchResources('Patient', {
       _count: String(limit),
       _sort: '-_lastUpdated',
-      ...(clinicId ? { identifier: `${CLINIC_IDENTIFIER_SYSTEM}|${clinicId}` } : {}),
+      ...(clinicId ? { identifier: `${CLINIC_IDENTIFIER_SYSTEM}|${clinicId}`, organization: `Organization/${clinicId}` } : {}),
     });
 
     return patients
@@ -563,10 +575,10 @@ export async function updatePatientInMedplum(patientId: string, updates: Partial
   }
 
   // Merge updates
-  const updatedPatient: FHIRPatient = {
+  const updatedPatient: FHIRPatient = addManagingOrganization({
     ...existingPatient,
     identifier: addClinicIdentifier(existingPatient.identifier, clinicId),
-  };
+  }, clinicId);
 
   if (updates.fullName) {
     const nameParts = updates.fullName.split(' ');

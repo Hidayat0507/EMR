@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getClinicIdFromRequest } from '@/lib/server/clinic';
 import {
   savePatientToMedplum,
   getPatientFromMedplum,
@@ -13,22 +13,13 @@ import {
   updatePatientInMedplum,
 } from '@/lib/fhir/patient-service';
 
-async function getClinicId(request: NextRequest): Promise<string | null> {
-  const cookieStore = await cookies();
-  return (
-    request.headers.get('x-clinic-id') ||
-    cookieStore.get('medplum-clinic')?.value ||
-    null
-  );
-}
-
 /**
  * POST - Create a new patient in Medplum
  */
 export async function POST(request: NextRequest) {
   try {
     const patientData = await request.json();
-    const clinicId = await getClinicId(request);
+    const clinicId = await getClinicIdFromRequest(request);
 
     // Validate required fields
     if (!patientData.fullName || !patientData.nric || !patientData.dateOfBirth || !patientData.gender) {
@@ -74,7 +65,7 @@ export async function GET(request: NextRequest) {
     const patientId = searchParams.get('id');
     const searchQuery = searchParams.get('search');
     const limit = searchParams.get('limit');
-    const clinicId = await getClinicId(request);
+    const clinicId = await getClinicIdFromRequest(request);
 
     if (!clinicId) {
       return NextResponse.json({ error: 'Missing clinicId' }, { status: 400 });
@@ -125,7 +116,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { patientId, ...updates } = await request.json();
-    const clinicId = await getClinicId(request);
+    const clinicId = await getClinicIdFromRequest(request);
 
     if (!patientId) {
       return NextResponse.json({ error: 'Missing patientId' }, { status: 400 });
@@ -152,8 +143,6 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
-
-
 
 
 

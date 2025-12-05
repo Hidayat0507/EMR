@@ -45,6 +45,42 @@ export interface SavedConsultation extends ConsultationData {
 let medplumClient: MedplumClient | undefined;
 let medplumInitPromise: Promise<MedplumClient> | undefined;
 
+const CLINIC_IDENTIFIER_SYSTEM = 'clinic';
+
+function addClinicIdentifier(identifiers: { system?: string; value?: string }[] | undefined, clinicId?: string) {
+  if (!clinicId) return identifiers;
+  const nextIdentifiers = [...(identifiers || [])];
+  const hasClinicId = nextIdentifiers.some((id) => id.system === CLINIC_IDENTIFIER_SYSTEM && id.value === clinicId);
+  if (!hasClinicId) {
+    nextIdentifiers.push({ system: CLINIC_IDENTIFIER_SYSTEM, value: clinicId });
+  }
+  return nextIdentifiers;
+}
+
+function matchesClinic(resource: { identifier?: { system?: string; value?: string }[]; serviceProvider?: { reference?: string }; managingOrganization?: { reference?: string } }, clinicId?: string) {
+  if (!clinicId) return true;
+  const identifierMatch = resource.identifier?.some((id) => id.system === CLINIC_IDENTIFIER_SYSTEM && id.value === clinicId);
+  const serviceProviderMatch = resource.serviceProvider?.reference === `Organization/${clinicId}`;
+  const managingOrgMatch = resource.managingOrganization?.reference === `Organization/${clinicId}`;
+  return Boolean(identifierMatch || serviceProviderMatch || managingOrgMatch);
+}
+
+function withClinicIdentifiers<T extends { identifier?: { system?: string; value?: string }[] }>(resource: T, clinicId?: string): T {
+  if (!clinicId) return resource;
+  return {
+    ...resource,
+    identifier: addClinicIdentifier(resource.identifier, clinicId),
+  };
+}
+
+function withServiceProvider<T extends { [key: string]: any }>(resource: T, clinicId?: string): T {
+  if (!clinicId) return resource;
+  return {
+    ...resource,
+    serviceProvider: { reference: `Organization/${clinicId}` },
+  };
+}
+
 async function validateAndCreate<T extends { resourceType: string }>(medplum: MedplumClient, resource: T) {
   const validation = validateFhirResource(resource);
   logValidation(resource.resourceType, validation);
@@ -97,7 +133,8 @@ async function getOrCreatePatient(
     gender?: string;
     phone?: string;
     address?: string;
-  }
+  },
+  clinicId?: string
 ): Promise<FHIRPatient> {
   // Try to find existing patient by Firebase ID
   let patient = await medplum.searchOne('Patient', {
@@ -115,10 +152,10 @@ async function getOrCreatePatient(
   if (!patient) {
     patient = await medplum.createResource({
       resourceType: 'Patient',
-      identifier: [
+      identifier: addClinicIdentifier([
         { system: 'firebase', value: patientData.id },
         ...(patientData.ic ? [{ system: 'ic', value: patientData.ic }] : []),
-      ],
+      ], clinicId),
       name: [
         {
           text: (patientData as any).name || (patientData as any).fullName,
@@ -130,8 +167,23 @@ async function getOrCreatePatient(
       gender: (patientData.gender?.toLowerCase() as 'male' | 'female' | 'other') || 'unknown',
       telecom: patientData.phone ? [{ system: 'phone', value: patientData.phone }] : undefined,
       address: patientData.address ? [{ text: patientData.address }] : undefined,
+      managingOrganization: clinicId ? { reference: `Organization/${clinicId}` } : undefined,
+      identifier: addClinicIdentifier(undefined, clinicId),
     });
     console.log(`✅ Created FHIR Patient: ${patient.id}`);
+  } else if (clinicId && !matchesClinic(patient as any, clinicId)) {
+    // Patient exists but not linked to this clinic -> deny
+    throw new Error('Patient does not belong to this clinic');
+  } else if (clinicId) {
+    // Ensure existing patient carries clinic identifier/organization
+    const needsClinicTag = !matchesClinic(patient as any, clinicId);
+    if (needsClinicTag) {
+      patient = await medplum.updateResource({
+        ...patient,
+        identifier: addClinicIdentifier((patient as any).identifier, clinicId),
+        managingOrganization: { reference: `Organization/${clinicId}` },
+      } as any);
+    }
   }
 
   return patient;
@@ -151,45 +203,47 @@ export async function saveConsultationToMedplum(
     gender?: string;
     phone?: string;
     address?: string;
-  }
+  },
+  clinicId?: string
 ): Promise<string> {
   const medplum = await getMedplumClient();
   
   console.log(`💾 Saving consultation to Medplum (source of truth)...`);
 
   // 1. Verify patient exists in Medplum
-  const patientReference = `Patient/${patientData.id}`;
+  const patient = await getOrCreatePatient(medplum, patientData, clinicId);
+  const patientReference = `Patient/${patient.id}`;
 
   // 2. Create Encounter (this is the consultation)
   const encounterDate = consultation.date?.toISOString() || new Date().toISOString();
-  const encounter = await validateAndCreate<Encounter>(medplum, {
-    resourceType: 'Encounter',
-    status: 'finished',
-    class: {
-      system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode',
-      code: 'AMB',
-      display: 'ambulatory',
-    },
-    subject: {
-      reference: patientReference,
-      display: patientData.name,
-    },
-    period: {
-      start: encounterDate,
-      end: encounterDate,
-    },
-    identifier: [
-      {
-        system: 'firebase-patient',
-        value: consultation.patientId,
+  const encounter = await validateAndCreate<Encounter>(medplum, withServiceProvider(withClinicIdentifiers({
+      resourceType: 'Encounter',
+      status: 'finished',
+      class: {
+        system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode',
+        code: 'AMB',
+        display: 'ambulatory',
       },
-    ],
-  });
+      subject: {
+        reference: patientReference,
+        display: patientData.name,
+      },
+      period: {
+        start: encounterDate,
+        end: encounterDate,
+      },
+      identifier: [
+        {
+          system: 'firebase-patient',
+          value: consultation.patientId,
+        },
+      ],
+    }, clinicId), clinicId));
   console.log(`✅ Created Encounter (Consultation): ${encounter.id}`);
 
   // 3. Create Chief Complaint (Observation)
   if (consultation.chiefComplaint) {
-    await validateAndCreate<Observation>(medplum, {
+    await validateAndCreate<Observation>(medplum, withClinicIdentifiers({
       resourceType: 'Observation',
       status: 'final',
       subject: { reference: patientReference },
@@ -200,7 +254,7 @@ export async function saveConsultationToMedplum(
       },
       valueString: consultation.chiefComplaint,
       effectiveDateTime: encounterDate,
-    });
+    }, clinicId));
   }
 
   // 4. Create Diagnosis (Condition) with ICD-10/SNOMED if available
@@ -225,18 +279,18 @@ export async function saveConsultationToMedplum(
       }
     }
 
-    await validateAndCreate<Condition>(medplum, {
+    await validateAndCreate<Condition>(medplum, withClinicIdentifiers({
       resourceType: 'Condition',
       subject: { reference: patientReference },
       encounter: { reference: `Encounter/${encounter.id}` },
       code,
       recordedDate: encounterDate,
-    });
+    }, clinicId));
   }
 
   // 5. Create Clinical Notes (Observation)
   if (consultation.notes) {
-    await validateAndCreate<Observation>(medplum, {
+    await validateAndCreate<Observation>(medplum, withClinicIdentifiers({
       resourceType: 'Observation',
       status: 'final',
       subject: { reference: patientReference },
@@ -244,12 +298,12 @@ export async function saveConsultationToMedplum(
       code: { text: 'Clinical Notes' },
       valueString: consultation.notes,
       effectiveDateTime: encounterDate,
-    });
+    }, clinicId));
   }
 
   // 5b. Progress Note
   if (consultation.progressNote) {
-    await validateAndCreate<Observation>(medplum, {
+    await validateAndCreate<Observation>(medplum, withClinicIdentifiers({
       resourceType: 'Observation',
       status: 'final',
       subject: { reference: patientReference },
@@ -257,7 +311,7 @@ export async function saveConsultationToMedplum(
       code: { text: 'Progress Note' },
       valueString: consultation.progressNote,
       effectiveDateTime: encounterDate,
-    });
+    }, clinicId));
   }
 
   // 6. Create Procedures
@@ -278,14 +332,14 @@ export async function saveConsultationToMedplum(
           }
         : { text: proc.name };
 
-      await validateAndCreate<Procedure>(medplum, {
+      await validateAndCreate<Procedure>(medplum, withClinicIdentifiers({
         resourceType: 'Procedure',
         status: 'completed',
         subject: { reference: patientReference },
         encounter: { reference: `Encounter/${encounter.id}` },
         code: codeable,
         performedDateTime: encounterDate,
-      });
+      }, clinicId));
     }
   }
 
@@ -306,7 +360,7 @@ export async function saveConsultationToMedplum(
         ];
       }
 
-      await validateAndCreate<MedicationRequest>(medplum, {
+      await validateAndCreate<MedicationRequest>(medplum, withClinicIdentifiers({
         resourceType: 'MedicationRequest',
         status: 'active',
         intent: 'order',
@@ -319,7 +373,7 @@ export async function saveConsultationToMedplum(
           },
         ],
         authoredOn: encounterDate,
-      });
+      }, clinicId));
     }
   }
 
@@ -330,12 +384,15 @@ export async function saveConsultationToMedplum(
 /**
  * Get a consultation from Medplum by Encounter ID
  */
-export async function getConsultationFromMedplum(encounterId: string): Promise<SavedConsultation | null> {
+export async function getConsultationFromMedplum(encounterId: string, clinicId?: string): Promise<SavedConsultation | null> {
   try {
     const medplum = await getMedplumClient();
     
     // Get the encounter
     const encounter = await medplum.readResource('Encounter', encounterId);
+    if (!matchesClinic(encounter as any, clinicId)) {
+      return null;
+    }
     
     // Get related resources
     const [conditions, observations, procedures, medications] = await Promise.all([
@@ -395,19 +452,33 @@ export async function getConsultationFromMedplum(encounterId: string): Promise<S
 /**
  * Get all consultations for a patient (by Firebase patient ID)
  */
-export async function getPatientConsultationsFromMedplum(firebasePatientId: string): Promise<SavedConsultation[]> {
+export async function getPatientConsultationsFromMedplum(firebasePatientId: string, clinicId?: string): Promise<SavedConsultation[]> {
   try {
     const medplum = await getMedplumClient();
-    
-    // Find encounters by Firebase patient ID
-    const encounters = await medplum.searchResources('Encounter', {
-      identifier: `firebase-patient|${firebasePatientId}`,
-      _sort: '-date',
-    });
+
+    // Find encounters scoped to clinic (if provided), then filter by patient identifier
+    const searchParams: Record<string, string> = clinicId
+      ? {
+          identifier: `${CLINIC_IDENTIFIER_SYSTEM}|${clinicId}`,
+          'service-provider': `Organization/${clinicId}`,
+          _sort: '-date',
+        }
+      : {
+          identifier: `firebase-patient|${firebasePatientId}`,
+          _sort: '-date',
+        };
+
+    const encounters = await medplum.searchResources('Encounter', searchParams);
 
     // Convert each encounter to SavedConsultation
     const consultations = await Promise.all(
-      encounters.map((encounter) => getConsultationFromMedplum(encounter.id!))
+      encounters
+        .filter(
+          (enc) =>
+            matchesClinic(enc as any, clinicId) &&
+            (enc as any).identifier?.some((id: any) => id.system === 'firebase-patient' && id.value === firebasePatientId)
+        )
+        .map((encounter) => getConsultationFromMedplum(encounter.id!, clinicId))
     );
 
     return consultations.filter((c): c is SavedConsultation => c !== null);
@@ -420,17 +491,20 @@ export async function getPatientConsultationsFromMedplum(firebasePatientId: stri
 /**
  * Get all recent consultations (for dashboard, etc.)
  */
-export async function getRecentConsultationsFromMedplum(limit = 10): Promise<SavedConsultation[]> {
+export async function getRecentConsultationsFromMedplum(limit = 10, clinicId?: string): Promise<SavedConsultation[]> {
   try {
     const medplum = await getMedplumClient();
     
     const encounters = await medplum.searchResources('Encounter', {
       _count: String(limit),
       _sort: '-date',
+      ...(clinicId ? { 'service-provider': `Organization/${clinicId}`, identifier: `${CLINIC_IDENTIFIER_SYSTEM}|${clinicId}` } : {}),
     });
 
     const consultations = await Promise.all(
-      encounters.map((encounter) => getConsultationFromMedplum(encounter.id!))
+      encounters
+        .filter((enc) => matchesClinic(enc as any, clinicId))
+        .map((encounter) => getConsultationFromMedplum(encounter.id!, clinicId))
     );
 
     return consultations.filter((c): c is SavedConsultation => c !== null);

@@ -22,6 +22,7 @@ import {
   Settings,
   TestTube,
   Users,
+  Clock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
@@ -41,6 +42,7 @@ type SidebarProps = {
 
 const baseNavigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Check-in", href: "/check-in", icon: Clock },
   { name: "Patients", href: "/patients", icon: Users },
   { name: "Orders", href: "/orders", icon: ClipboardListIcon },
 ];

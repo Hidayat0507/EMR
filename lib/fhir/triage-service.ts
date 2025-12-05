@@ -27,6 +27,8 @@ const VITAL_CODES: Record<keyof VitalSigns, { code: string; system: string; disp
 
 function queueStatusFromEncounter(encounterStatus?: string): QueueStatus {
   switch (encounterStatus) {
+    case 'arrived':
+      return 'arrived';
     case 'triaged':
       return 'waiting';
     case 'in-progress':
@@ -40,6 +42,8 @@ function queueStatusFromEncounter(encounterStatus?: string): QueueStatus {
 
 function encounterStatusFromQueue(status: QueueStatus | null): string | undefined {
   switch (status) {
+    case 'arrived':
+      return 'arrived';
     case 'waiting':
       return 'triaged';
     case 'in_consultation':
@@ -96,6 +100,17 @@ function buildTriageExtension(triageData: Omit<TriageData, 'triageAt' | 'isTriag
             },
           ]
         : []),
+    ],
+  };
+}
+
+function buildQueueOnlyExtension(queueStatus: QueueStatus, queueAddedAtIso: string) {
+  return {
+    url: TRIAGE_ENCOUNTER_EXTENSION_URL,
+    extension: [
+      { url: 'queueStatus', valueString: queueStatus },
+      { url: 'queueAddedAt', valueDateTime: queueAddedAtIso },
+      { url: 'isTriaged', valueBoolean: false },
     ],
   };
 }
@@ -239,6 +254,35 @@ export async function saveTriageEncounter(patientId: string, triageData: Omit<Tr
   await createVitalsObservations(encounter.id!, `Patient/${patientId}`, triageData.vitalSigns || {});
 }
 
+export async function checkInPatientInTriage(patientId: string, chiefComplaint?: string): Promise<string> {
+  const medplum = await getMedplumClient();
+  const existing = await getActiveTriageEncounter(patientId);
+  if (existing) {
+    await updateQueueStatusForPatient(patientId, 'arrived');
+    return existing.id;
+  }
+
+  const queueAddedAtIso = new Date().toISOString();
+  const encounter = await validateAndCreate(medplum, {
+    resourceType: 'Encounter',
+    status: 'arrived',
+    class: {
+      system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode',
+      code: 'AMB',
+      display: 'ambulatory',
+    },
+    subject: { reference: `Patient/${patientId}` },
+    period: { start: queueAddedAtIso },
+    extension: [buildQueueOnlyExtension('arrived', queueAddedAtIso)],
+  });
+
+  if (chiefComplaint) {
+    await createChiefComplaintObservation(encounter.id!, `Patient/${patientId}`, chiefComplaint);
+  }
+
+  return encounter.id!;
+}
+
 export async function updateTriageEncounter(
   patientId: string,
   triageData: Partial<TriageData>
@@ -275,7 +319,12 @@ export async function updateTriageEncounter(
 export async function updateQueueStatusForPatient(patientId: string, status: QueueStatus | null): Promise<void> {
   const medplum = await getMedplumClient();
   const existing = await getActiveTriageEncounter(patientId);
+
   if (!existing) {
+    if (status === 'arrived') {
+      await checkInPatientInTriage(patientId);
+      return;
+    }
     throw new Error('No active triage encounter found');
   }
 
@@ -317,6 +366,9 @@ export async function updateQueueStatusForPatient(patientId: string, status: Que
   if (status) {
     setSub('queueStatus', { url: 'queueStatus', valueString: status });
     setSub('queueAddedAt', { url: 'queueAddedAt', valueDateTime: existing.queueAddedAt || nowIso });
+    if (status === 'arrived') {
+      setSub('isTriaged', { url: 'isTriaged', valueBoolean: false });
+    }
   } else {
     setSub('queueStatus', null);
     setSub('queueAddedAt', null);
@@ -341,7 +393,7 @@ export async function getActiveTriageEncounter(
   const medplum = await getMedplumClient();
   const encounters = await medplum.searchResources('Encounter', {
     subject: `Patient/${patientId}`,
-    status: 'triaged,in-progress',
+    status: 'arrived,triaged,in-progress',
     _count: '1',
     _sort: '-_lastUpdated',
   });
@@ -384,7 +436,7 @@ export async function getTriageQueueForToday(limit = 200): Promise<SavedPatient[
 
   const startIso = start.toISOString();
   const endIso = end.toISOString();
-  const query = `status=triaged,in-progress,finished&date=ge${startIso}&date=lt${endIso}&_count=${limit}&_sort=date`;
+  const query = `status=arrived,triaged,in-progress,finished&date=ge${startIso}&date=lt${endIso}&_count=${limit}&_sort=date`;
 
   const encounters = await medplum.searchResources<any>('Encounter', query);
 
@@ -411,11 +463,20 @@ export async function getTriageQueueForToday(limit = 200): Promise<SavedPatient[
   }
 
   return patients
-    .filter((p) => p.triage?.isTriaged)
+    .filter((p) => p.queueStatus)
     .sort((a, b) => {
-      const aLevel = (a as any).triage?.triageLevel ?? 5;
-      const bLevel = (b as any).triage?.triageLevel ?? 5;
+      const aTriaged = Boolean((a as any).triage?.isTriaged);
+      const bTriaged = Boolean((b as any).triage?.isTriaged);
+
+      // triaged patients first, arrivals next
+      if (aTriaged !== bTriaged) {
+        return aTriaged ? -1 : 1;
+      }
+
+      const aLevel = (a as any).triage?.triageLevel ?? 6; // arrivals without triage sink below triaged
+      const bLevel = (b as any).triage?.triageLevel ?? 6;
       if (aLevel !== bLevel) return aLevel - bLevel;
+
       const aTime = (a as any).queueAddedAt ? new Date((a as any).queueAddedAt).getTime() : 0;
       const bTime = (b as any).queueAddedAt ? new Date((b as any).queueAddedAt).getTime() : 0;
       return aTime - bTime;

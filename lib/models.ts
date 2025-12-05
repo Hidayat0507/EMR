@@ -18,7 +18,14 @@ import {
 import { safeToISOString } from "./utils";
 import { QueueStatus, BillableConsultation, TriageData } from "./types";
 import { getAllPatientsFromMedplum, getPatientFromMedplum, getMedplumClient } from "./fhir/patient-service";
-import { getTriageQueueForToday, getTriageForPatient, saveTriageEncounter, updateQueueStatusForPatient, updateTriageEncounter } from "./fhir/triage-service";
+import {
+  getTriageQueueForToday,
+  getTriageForPatient,
+  saveTriageEncounter,
+  updateQueueStatusForPatient,
+  updateTriageEncounter,
+  checkInPatientInTriage,
+} from "./fhir/triage-service";
 import { getPatientConsultationsFromMedplum, getConsultationFromMedplum, saveConsultationToMedplum } from "./fhir/consultation-service";
 
 export interface Patient {
@@ -645,4 +652,8 @@ export async function updateTriageData(patientId: string, triageData: Partial<Tr
 export async function getTriagedPatientsQueue(): Promise<Patient[]> {
   const patients = await getTriageQueueForToday();
   return patients as unknown as Patient[];
+}
+
+export async function checkInPatient(patientId: string, chiefComplaint?: string): Promise<string> {
+  return checkInPatientInTriage(patientId, chiefComplaint);
 }

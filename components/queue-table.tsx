@@ -152,6 +152,13 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
 
   const getStatusBadge = (status: QueueStatus | undefined) => {
     switch (status) {
+      case 'arrived':
+        return (
+          <Badge variant="outline" className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Arrived (awaiting triage)
+          </Badge>
+        );
       case 'waiting':
         return (
           <Badge variant="secondary" className="flex items-center gap-1">
