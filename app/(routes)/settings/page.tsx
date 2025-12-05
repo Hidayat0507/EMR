@@ -14,6 +14,7 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import Image from 'next/image';
 import { SmartTextManager } from '@/components/settings/smart-text-manager';
+import { ModuleManager } from '@/components/settings/module-manager';
 
 // Placeholder for user data - replace with actual data fetching/auth context later
 interface UserSettings {
@@ -243,6 +244,18 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           <SmartTextManager />
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Feature Modules</CardTitle>
+          <CardDescription>Enable or disable features based on your clinic&apos;s requirements.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ModuleManager />
         </CardContent>
       </Card>
 

@@ -1,8 +1,6 @@
-import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
-import { Patient } from '@/lib/models';
-import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
+import { Patient } from "@/lib/models";
+import type { OrganizationDetails } from "@/lib/org";
 
 const styles = StyleSheet.create({
   page: {
@@ -61,23 +59,20 @@ export interface McDocumentProps {
   endDate: string; // formatted
   numDays: number;
   doctorName: string;
+  organization?: OrganizationDetails | null;
 }
 
-export function McDocument({ patient, issuedDate, startDate, endDate, numDays, doctorName }: McDocumentProps) {
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [org, setOrg] = useState<{ name?: string; address?: string; phone?: string } | null>(null);
-  useEffect(() => {
-    (async () => {
-      try {
-        const snap = await getDoc(doc(db, 'settings', 'org'));
-        if (snap.exists()) {
-          const data = snap.data() as any;
-          setLogoUrl(data.logoUrl || null);
-          setOrg({ name: data.name, address: data.address, phone: data.phone });
-        }
-      } catch {}
-    })();
-  }, []);
+export function McDocument({
+  patient,
+  issuedDate,
+  startDate,
+  endDate,
+  numDays,
+  doctorName,
+  organization,
+}: McDocumentProps) {
+  const logoUrl = organization?.logoUrl ?? null;
+  const org = organization ?? null;
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -124,5 +119,4 @@ export function McDocument({ patient, issuedDate, startDate, endDate, numDays, d
     </Document>
   );
 }
-
 

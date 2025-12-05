@@ -3,9 +3,14 @@ import { adminAuth } from "@/lib/firebase-admin";
 import { isRateLimited } from "@/lib/rate-limit";
 import { soapRewriteBodySchema } from "@/lib/validation";
 import { createChatCompletion, type ChatMessage } from "@/lib/server/openrouter";
+import { SOAP_REWRITE_ENABLED } from "@/lib/features";
 
 export async function POST(req: NextRequest) {
   try {
+    if (!SOAP_REWRITE_ENABLED) {
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    }
+
     const session = req.cookies.get("emr_session")?.value;
     if (!session) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });

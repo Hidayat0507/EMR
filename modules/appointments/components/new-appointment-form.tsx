@@ -16,7 +16,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import { getPatients, type Patient, createAppointment, type AppointmentStatus } from "@/lib/models";
+import { getAllPatients, type Patient } from "@/lib/fhir/patient-client";
+import { saveAppointment } from "@/lib/fhir/appointment-client";
+import type { AppointmentStatus } from "@/lib/models";
 import { cn } from "@/lib/utils";
 import {
   Command,
@@ -176,14 +178,17 @@ export default function NewAppointmentForm() {
       setLoadingPatients(true);
       setLoadError(null);
       try {
-        const data = await getPatients();
+        // 🎯 LOAD FROM MEDPLUM (FHIR) - Source of Truth
+        const data = await getAllPatients(200);
+        console.log(`✅ Loaded ${data.length} patients from Medplum FHIR for appointment form`);
+        
         const sorted = data
           .slice()
           .sort((a, b) => a.fullName.localeCompare(b.fullName));
-        setPatients(sorted);
+        setPatients(sorted as any);
       } catch (error) {
-        console.error("Failed to load patients", error);
-        setLoadError("Unable to load patients. Please try refreshing the page.");
+        console.error("Failed to load patients from Medplum", error);
+        setLoadError("Unable to load patients from FHIR. Please try refreshing the page.");
       } finally {
         setLoadingPatients(false);
       }
@@ -225,30 +230,42 @@ export default function NewAppointmentForm() {
 
       const scheduledAt = combineDateTime(values.scheduledDate, values.scheduledTime);
 
-      await createAppointment({
+      // Map appointment status to FHIR status
+      const fhirStatus = values.status === "scheduled" ? "booked" : 
+                        values.status === "checked_in" ? "arrived" :
+                        values.status === "in_progress" ? "arrived" :
+                        values.status === "completed" ? "fulfilled" :
+                        values.status === "cancelled" ? "cancelled" :
+                        values.status === "no_show" ? "noshow" : "booked";
+
+      // 🎯 SAVE TO MEDPLUM (FHIR) - Source of Truth
+      const appointmentId = await saveAppointment({
         patientId: patient.id,
         patientName: patient.name,
-        patientContact: patient.contact,
+        patientContact: patient.contact || undefined,
         clinician: values.clinician,
         reason: values.reason,
         type: values.visitType,
         notes: values.notes,
         scheduledAt,
-        status: values.status ?? "scheduled",
+        status: fhirStatus as any,
+        durationMinutes: 30,
       });
+
+      console.log(`✅ Appointment saved to Medplum FHIR: ${appointmentId}`);
 
       toast({
         title: "Appointment scheduled",
-        description: `${patient.name} booked with ${values.clinician} on ${scheduledAt.toLocaleString()}`,
+        description: `${patient.name} booked with ${values.clinician} on ${scheduledAt.toLocaleString()} (FHIR)`,
       });
 
       router.push("/appointments");
       router.refresh();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create appointment", error);
       toast({
         title: "Unable to save appointment",
-        description: "Please review the form and try again.",
+        description: error.message || "Please review the form and try again.",
         variant: "destructive",
       });
     }

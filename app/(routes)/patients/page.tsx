@@ -5,12 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Search, Clock, CheckCircle2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
-import { 
-  getPatients, 
-  addPatientToQueue, 
-  removePatientFromQueue, 
-  type Patient 
-} from "@/lib/models";
+import { getAllPatients, type Patient } from "@/lib/fhir/patient-client";
 import {
   Table,
   TableBody,
@@ -54,8 +49,11 @@ export default function PatientsPage() {
       setLoading(true);
       setError(null);
       try {
-        const data = await getPatients();
-        setPatients(data);
+        // 🎯 LOAD FROM MEDPLUM (FHIR) - Source of Truth
+        const data = await getAllPatients(200);
+        console.log(`✅ Loaded ${data.length} patients from Medplum FHIR`);
+        
+        setPatients(data as any);
         
         const now = new Date();
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -63,19 +61,19 @@ export default function PatientsPage() {
         
         setStats({
           total: data.length,
-          new: data.filter((p: Patient) => {
+          new: data.filter((p) => {
             const createdAt = p.createdAt ? new Date(p.createdAt) : null;
             return createdAt && createdAt >= monthStart;
           }).length,
-          followUps: data.filter((p: Patient) => {
-            const lastVisit = p.lastVisit ? new Date(p.lastVisit) : null;
+          followUps: data.filter((p) => {
+            const lastVisit = (p as any).lastVisit ? new Date((p as any).lastVisit) : null;
             return lastVisit && lastVisit >= weekStart;
           }).length,
-          inQueue: data.filter((p: Patient) => p.queueStatus === 'waiting').length
+          inQueue: data.filter((p) => (p as any).queueStatus === 'waiting').length
         });
       } catch (err) {
-        console.error('Error loading patients:', err);
-        setError('Failed to load patient data.');
+        console.error('Error loading patients from Medplum:', err);
+        setError('Failed to load patient data from FHIR.');
       } finally {
         setLoading(false);
       }
@@ -86,7 +84,15 @@ export default function PatientsPage() {
 
   const handleAddToQueue = async (patient: Patient) => {
     try {
-      await addPatientToQueue(patient.id);
+      const res = await fetch('/api/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: patient.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to add to queue');
+      }
       toast({
         title: "Added to Queue",
         description: `${patient.fullName} has been added to the queue.`,
@@ -105,7 +111,15 @@ export default function PatientsPage() {
 
   const handleRemoveFromQueue = async (patient: Patient) => {
     try {
-      await removePatientFromQueue(patient.id);
+      const res = await fetch('/api/queue', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: patient.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to remove from queue');
+      }
       toast({
         title: "Removed from Queue",
         description: `${patient.fullName} has been removed from the queue.`,
@@ -244,17 +258,17 @@ export default function PatientsPage() {
                         <TableCell>{patient.gender}</TableCell>
                         <TableCell>{patient.phone}</TableCell>
                         <TableCell>
-                          {patient.lastVisit 
-                            ? new Date(patient.lastVisit).toLocaleDateString()
+                          {(patient as any).lastVisit 
+                            ? new Date((patient as any).lastVisit).toLocaleDateString()
                             : 'No visits'}
                         </TableCell>
                         <TableCell>
-                          {patient.queueStatus === 'waiting' ? (
+                          {(patient as any).queueStatus === 'waiting' ? (
                             <Badge variant="secondary" className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
                               In Queue
                             </Badge>
-                          ) : patient.lastVisit ? (
+                          ) : (patient as any).lastVisit ? (
                             <Badge variant="outline">Active</Badge>
                           ) : (
                             <Badge variant="outline">New</Badge>
@@ -273,7 +287,14 @@ export default function PatientsPage() {
                                   View Details
                                 </Link>
                               </DropdownMenuItem>
-                              {patient.queueStatus === 'waiting' ? (
+                              {(!(patient as any).triage?.isTriaged || !(patient as any).queueStatus) && (
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/patients/${patient.id}/triage`}>
+                                    Perform Triage
+                                  </Link>
+                                </DropdownMenuItem>
+                              )}
+                              {(patient as any).queueStatus === 'waiting' ? (
                                 <DropdownMenuItem onClick={() => handleRemoveFromQueue(patient)}>
                                   Remove from Queue
                                 </DropdownMenuItem>

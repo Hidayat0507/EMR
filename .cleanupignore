@@ -1,0 +1,47 @@
+# Files and directories to keep during cleanup
+# This file documents what should NOT be deleted
+
+# Essential config files
+.env.local
+.eslintrc.json
+.gitignore
+package.json
+tsconfig.json
+next.config.js
+tailwind.config.ts
+postcss.config.js
+components.json
+middleware.ts
+firestore.rules
+
+# Essential directories
+app/
+components/
+lib/
+modules/
+docs/
+scripts/
+tests/
+hooks/
+public/
+
+# Lock files
+bun.lockb
+
+# Essential documentation
+README.md
+CHANGELOG.md
+PROJECT_STRUCTURE.md
+
+# Build artifacts (auto-generated, but needed)
+next-env.d.ts
+node_modules/
+.next/
+
+
+
+
+
+
+
+

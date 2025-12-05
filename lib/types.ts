@@ -17,7 +17,42 @@ export type SerializedConsultation = Omit<Consultation, "date" | "createdAt" | "
   date?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  progressNote?: string | null;
 };
+
+// Triage System Types
+export type TriageLevel = 1 | 2 | 3 | 4 | 5;
+
+export const TRIAGE_LEVELS = {
+  1: { label: "Resuscitation", color: "red", description: "Immediate life-threatening" },
+  2: { label: "Emergency", color: "orange", description: "Imminently life-threatening" },
+  3: { label: "Urgent", color: "yellow", description: "Potentially life-threatening" },
+  4: { label: "Semi-Urgent", color: "green", description: "Potentially serious" },
+  5: { label: "Non-Urgent", color: "blue", description: "Less urgent" },
+} as const;
+
+export interface VitalSigns {
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  heartRate?: number;
+  respiratoryRate?: number;
+  temperature?: number;
+  oxygenSaturation?: number;
+  painScore?: number; // 0-10 scale
+  weight?: number;
+  height?: number;
+}
+
+export interface TriageData {
+  triageLevel: TriageLevel;
+  chiefComplaint: string;
+  vitalSigns: VitalSigns;
+  triageNotes?: string;
+  redFlags?: string[]; // e.g., ["Chest pain", "Difficulty breathing"]
+  triageBy?: string; // Staff member who performed triage
+  triageAt?: Date | string;
+  isTriaged: boolean;
+}
 
 // Add other shared types here as needed
 

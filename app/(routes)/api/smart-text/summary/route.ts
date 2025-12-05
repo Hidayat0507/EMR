@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     const sorted = consultations
       .slice()
       .sort((a, b) => (toDate(b.date)?.getTime() ?? 0) - (toDate(a.date)?.getTime() ?? 0))
-      .slice(0, limit);
+      .slice(0, Math.min(limit, 3)); // Limit to max 3 visits to reduce token count
 
     if (sorted.length === 0) {
       return new Response(
@@ -60,6 +60,9 @@ export async function POST(req: NextRequest) {
     }
 
     const prompt = buildPrompt(patient, sorted);
+
+    console.log(`[smart-text summary] Prompt for patient ${patient.id}:`);
+    console.log(prompt);
 
     const messages: ChatMessage[] = [
       {
@@ -75,6 +78,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const completion = await createChatCompletion(messages, {
+        model: "anthropic/claude-3-haiku", // Use Haiku for faster, more reliable summarization
         maxTokens: 800,
         temperature: 0.4,
       });

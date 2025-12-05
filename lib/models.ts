@@ -7,14 +7,19 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   orderBy,
   query,
+  setDoc,
   updateDoc,
   where,
   type DocumentData,
 } from "firebase/firestore";
 import { safeToISOString } from "./utils";
-import { QueueStatus, BillableConsultation } from "./types";
+import { QueueStatus, BillableConsultation, TriageData } from "./types";
+import { getAllPatientsFromMedplum, getPatientFromMedplum, getMedplumClient } from "./fhir/patient-service";
+import { getTriageQueueForToday, getTriageForPatient, saveTriageEncounter, updateQueueStatusForPatient, updateTriageEncounter } from "./fhir/triage-service";
+import { getPatientConsultationsFromMedplum, getConsultationFromMedplum, saveConsultationToMedplum } from "./fhir/consultation-service";
 
 export interface Patient {
   id: string;
@@ -42,6 +47,7 @@ export interface Patient {
   updatedAt?: Date | string;
   queueStatus?: QueueStatus;
   queueAddedAt?: Date | string | null;
+  triage?: TriageData;
 }
 
 export interface Consultation {
@@ -223,29 +229,57 @@ function serializeQueuePatient(patient: Patient): Patient {
 }
 
 export async function getPatients(): Promise<Patient[]> {
-  const snapshot = await getDocs(collection(db, PATIENTS));
-  return snapshot.docs.map((docSnap) => mapDocument<Patient>(docSnap));
+  const patients = await getAllPatientsFromMedplum(300);
+  const enriched = await Promise.all(
+    patients.map(async (p) => {
+      const triage = await getTriageForPatient(p.id);
+      return {
+        ...(p as any),
+        triage: triage.triage,
+        queueStatus: triage.queueStatus ?? null,
+        queueAddedAt: triage.queueAddedAt ?? null,
+      } as Patient;
+    })
+  );
+  return enriched;
 }
 
 export async function getPatientById(id: string): Promise<Patient | null> {
-  const docRef = doc(db, PATIENTS, id);
-  const docSnap = await getDoc(docRef);
-
-  if (!docSnap.exists()) {
-    return null;
-  }
-
-  return mapDocument<Patient>(docSnap);
+  const [patient, triage] = await Promise.all([
+    getPatientFromMedplum(id),
+    getTriageForPatient(id),
+  ]);
+  if (!patient) return null;
+  return {
+    ...(patient as any),
+    triage: triage.triage,
+    queueStatus: triage.queueStatus ?? null,
+    queueAddedAt: triage.queueAddedAt ?? null,
+  } as Patient;
 }
 
 export async function createPatient(data: Omit<Patient, "id" | "createdAt" | "updatedAt">): Promise<string> {
-  const now = Timestamp.now();
-  const docRef = await addDoc(collection(db, PATIENTS), {
-    ...data,
-    createdAt: now,
-    updatedAt: now,
-  });
-  return docRef.id;
+  // Use Medplum as ONLY source of truth
+  const { savePatientToMedplum } = await import('@/lib/fhir/patient-service');
+  
+  const patientData = {
+    fullName: data.fullName,
+    nric: data.nric,
+    dateOfBirth: data.dateOfBirth,
+    gender: data.gender,
+    email: data.email || '',
+    phone: data.phone,
+    address: data.address,
+    postalCode: data.postalCode,
+    emergencyContact: data.emergencyContact,
+    medicalHistory: data.medicalHistory,
+  };
+  
+  // Save directly to Medplum (source of truth)
+  const medplumId = await savePatientToMedplum(patientData);
+  
+  console.log(`✅ Patient created in Medplum: ${medplumId}`);
+  return medplumId;
 }
 
 export async function getAppointments(statuses?: AppointmentStatus[]): Promise<Appointment[]> {
@@ -355,77 +389,84 @@ export async function updateAppointment(id: string, data: Partial<Appointment>):
 }
 
 export async function getConsultationsByPatientId(patientId: string): Promise<Consultation[]> {
-  const consultationQuery = query(collection(db, CONSULTATIONS), where("patientId", "==", patientId));
-  const snapshot = await getDocs(consultationQuery);
-  return snapshot.docs.map((docSnap) => mapDocument<Consultation>(docSnap));
+  const consultations = await getPatientConsultationsFromMedplum(patientId);
+  return consultations as unknown as Consultation[];
 }
 
 export async function getConsultationById(id: string): Promise<Consultation | null> {
-  const docRef = doc(db, CONSULTATIONS, id);
-  const docSnap = await getDoc(docRef);
-
-  if (!docSnap.exists()) {
-    return null;
-  }
-
-  return mapDocument<Consultation>(docSnap);
+  const consultation = await getConsultationFromMedplum(id);
+  return (consultation as unknown as Consultation) ?? null;
 }
 
 export async function createConsultation(
   consultation: Omit<Consultation, "id" | "createdAt" | "updatedAt">
 ): Promise<string> {
-  const now = Timestamp.now();
-  const dataToSave = { ...consultation, createdAt: now, updatedAt: now };
-  if (!dataToSave.date) {
-    dataToSave.date = now.toDate();
+  const patient = await getPatientFromMedplum(consultation.patientId);
+  if (!patient) {
+    throw new Error("Patient not found in Medplum");
   }
 
-  const docRef = await addDoc(collection(db, CONSULTATIONS), dataToSave);
-  return docRef.id;
+  const encounterId = await saveConsultationToMedplum(
+    {
+      patientId: consultation.patientId,
+      chiefComplaint: consultation.chiefComplaint,
+      diagnosis: consultation.diagnosis,
+      procedures: consultation.procedures,
+      notes: consultation.notes,
+      progressNote: (consultation as any).progressNote,
+      prescriptions: consultation.prescriptions as any,
+      date: consultation.date,
+    },
+    {
+      id: patient.id,
+      name: (patient as any).fullName || (patient as any).name || "",
+      ic: (patient as any).nric || "",
+      dob:
+        patient.dateOfBirth instanceof Date
+          ? patient.dateOfBirth
+          : new Date((patient as any).dateOfBirth),
+      gender: (patient as any).gender,
+      phone: (patient as any).phone,
+      address: (patient as any).address,
+    }
+  );
+
+  return encounterId;
 }
 
 export async function updateConsultation(id: string, data: Partial<Consultation>): Promise<void> {
-  const docRef = doc(db, CONSULTATIONS, id);
-  await updateDoc(docRef, {
-    ...data,
-    updatedAt: Timestamp.now(),
-  });
+  const medplum = await getMedplumClient();
+
+  // For now, support updating notes/progress via an Observation amendment.
+  if (data.notes) {
+    await medplum.createResource({
+      resourceType: 'Observation',
+      status: 'final',
+      encounter: { reference: `Encounter/${id}` },
+      code: {
+        coding: [{ system: 'http://loinc.org', code: '48767-8', display: 'Clinical note' }],
+        text: 'Clinical Notes',
+      },
+      valueString: data.notes,
+      effectiveDateTime: new Date().toISOString(),
+    });
+  }
 }
 
 export async function getTodaysQueue(): Promise<Patient[]> {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const q = query(
-    collection(db, PATIENTS),
-    where("queueStatus", "in", ["waiting", "in_consultation", "completed", "meds_and_bills"]),
-    where("queueAddedAt", ">=", Timestamp.fromDate(today)),
-    where("queueAddedAt", "<", Timestamp.fromDate(tomorrow)),
-    orderBy("queueAddedAt", "asc")
-  );
-
-  const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map((docSnap) => serializeQueuePatient(mapDocument<Patient>(docSnap)));
+  return getTriagedPatientsQueue();
 }
 
 export async function addPatientToQueue(patientId: string): Promise<void> {
-  const docRef = doc(db, PATIENTS, patientId);
-  await updateDoc(docRef, {
-    queueStatus: "waiting",
-    queueAddedAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  });
+  await updateQueueStatusForPatient(patientId, "waiting");
 }
 
 export async function removePatientFromQueue(patientId: string): Promise<void> {
-  const docRef = doc(db, PATIENTS, patientId);
-  await updateDoc(docRef, {
-    queueStatus: null,
-    queueAddedAt: null,
-    updatedAt: Timestamp.now(),
-  });
+  await updateQueueStatusForPatient(patientId, null);
+}
+
+export async function updateQueueStatus(patientId: string, status: QueueStatus): Promise<void> {
+  await updateQueueStatusForPatient(patientId, status);
 }
 
 export async function getConsultationsWithDetails(statuses: QueueStatus[]): Promise<BillableConsultation[]> {
@@ -435,44 +476,78 @@ export async function getConsultationsWithDetails(statuses: QueueStatus[]): Prom
       return [];
     }
 
-    const patientsSnapshot = await getDocs(
-      query(collection(db, PATIENTS), where("queueStatus", "in", validStatuses))
-    );
-    const patientsById = new Map<string, Patient>(
-      patientsSnapshot.docs.map((docSnap) => {
-        const patient = mapDocument<Patient>(docSnap);
-        return [patient.id, patient];
-      })
-    );
+    const medplum = await getMedplumClient();
+    let encounters: any[] = [];
+    let searchUrl: string | undefined;
 
-    if (patientsById.size === 0) {
-      return [];
-    }
+    do {
+      const page = await medplum.searchResources<any>('Encounter', {
+        status: 'triaged,in-progress,finished',
+        _count: '100',
+        _sort: '-date',
+        ...(searchUrl ? { _url: searchUrl } : {}),
+      } as any);
 
-    const consultationsSnapshot = await getDocs(collection(db, CONSULTATIONS));
+      encounters = encounters.concat(page ?? []);
 
-    const consultations = consultationsSnapshot.docs
-      .map((docSnap) => mapDocument<Consultation>(docSnap))
-      .filter((consultation) => patientsById.has(consultation.patientId))
-      .map((consultation) => {
-        const patient = patientsById.get(consultation.patientId)!;
-        return {
-          id: consultation.id,
-          patientId: consultation.patientId,
-          patientFullName: patient.fullName,
-          queueStatus: patient.queueStatus,
-          date: safeToISOString(consultation.date) ?? null,
-          createdAt: safeToISOString(consultation.createdAt) ?? null,
-          updatedAt: safeToISOString(consultation.updatedAt) ?? null,
-          type: consultation.type,
-          doctor: consultation.doctor,
-          chiefComplaint: consultation.chiefComplaint,
-          diagnosis: consultation.diagnosis,
-          procedures: consultation.procedures,
-          notes: consultation.notes,
-          prescriptions: consultation.prescriptions,
-        } satisfies BillableConsultation;
-      });
+      // Medplum search pages include next link in page.links
+      const nextLink = (page as any)?.[Symbol.iterator] ? undefined : (page as any)?.links?.find((l: any) => l.relation === 'next');
+      searchUrl = nextLink?.url;
+    } while (searchUrl);
+
+    const parseQueueStatus = (enc: any): { queueStatus: QueueStatus; queueAddedAt?: string | null } => {
+      const ext = (enc.extension || []).find((e: any) => e.url === 'https://ucc.emr/triage-encounter');
+      const getSub = (key: string) => ext?.extension?.find((e: any) => e.url === key);
+      const queueStatus = (getSub('queueStatus')?.valueString as QueueStatus) ?? null;
+      const queueAddedAt = getSub('queueAddedAt')?.valueDateTime ?? enc.period?.start ?? null;
+      return {
+        queueStatus:
+          queueStatus ??
+          (enc.status === 'triaged'
+            ? 'waiting'
+            : enc.status === 'in-progress'
+            ? 'in_consultation'
+            : enc.status === 'finished'
+            ? 'completed'
+            : null),
+        queueAddedAt,
+      };
+    };
+
+    const consultations = (
+      await Promise.all(
+        encounters.map(async (enc: any) => {
+          const { queueStatus } = parseQueueStatus(enc);
+          if (!queueStatus || !validStatuses.includes(queueStatus)) {
+            return null;
+          }
+
+          const consultation = await getConsultationFromMedplum(enc.id);
+          if (!consultation) return null;
+          const patientId = enc.subject?.reference?.replace('Patient/', '') || consultation.patientId;
+          if (!patientId) return null;
+
+          const patient = await getPatientFromMedplum(patientId);
+
+          return {
+            id: consultation.id,
+            patientId,
+            patientFullName: patient?.fullName ?? consultation.patientName ?? '',
+            queueStatus,
+            date: safeToISOString((consultation as any).date) ?? null,
+            createdAt: safeToISOString((consultation as any).createdAt) ?? null,
+            updatedAt: safeToISOString((consultation as any).updatedAt) ?? null,
+            type: (consultation as any).type,
+            doctor: (consultation as any).doctor,
+            chiefComplaint: (consultation as any).chiefComplaint,
+            diagnosis: (consultation as any).diagnosis,
+            procedures: (consultation as any).procedures,
+            notes: (consultation as any).notes,
+            prescriptions: (consultation as any).prescriptions,
+          } satisfies BillableConsultation;
+        })
+      )
+    ).filter((c): c is BillableConsultation => Boolean(c));
 
     return consultations.sort((a, b) => {
       const dateA = a.date ? new Date(a.date).getTime() : 0;
@@ -491,6 +566,7 @@ export interface Referral {
   date: Date;
   specialty: string;
   facility: string;
+  department?: string;
   doctorName?: string;
   urgency?: "routine" | "urgent" | "emergency";
   reason?: string;
@@ -555,4 +631,18 @@ export async function getAllPatientDocuments(): Promise<(PatientDocument & { pat
     const patientId = segments.length >= 2 ? segments[1] : "";
     return { ...document, patientId };
   });
+}
+
+// Triage Functions
+export async function triagePatient(patientId: string, triageData: Omit<TriageData, 'triageAt' | 'isTriaged'>): Promise<void> {
+  await saveTriageEncounter(patientId, triageData);
+}
+
+export async function updateTriageData(patientId: string, triageData: Partial<TriageData>): Promise<void> {
+  await updateTriageEncounter(patientId, triageData);
+}
+
+export async function getTriagedPatientsQueue(): Promise<Patient[]> {
+  const patients = await getTriageQueueForToday();
+  return patients as unknown as Patient[];
 }

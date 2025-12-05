@@ -31,7 +31,7 @@ export default async function ConsultationDetails({ params }: Props) {
 
   return (
     <div className="container max-w-4xl py-6">
-      <div className="mb-6">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Button variant="ghost" className="p-0" asChild>
           <Link
             href={`/patients/${consultation.patientId}`}
@@ -40,6 +40,9 @@ export default async function ConsultationDetails({ params }: Props) {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Patient Profile
           </Link>
+        </Button>
+        <Button size="sm" asChild>
+          <Link href={`/consultations/${consultation.id}/edit`}>Edit Consultation</Link>
         </Button>
       </div>
 

@@ -1,12 +1,17 @@
 import NewPatientForm from "./new-patient-form";
 
+type SearchParams = { [key: string]: string | string[] | undefined };
+
 type Props = {
-  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
+  searchParams?: Promise<SearchParams>;
 };
 
 export default async function Page({ searchParams }: Props) {
-  const paramsObj = (await searchParams?.catch(() => ({} as Record<string, unknown>))) || ({} as Record<string, unknown>);
-  const fullName = typeof paramsObj["fullName"] === 'string' ? (paramsObj["fullName"] as string) : '';
-  const nric = typeof paramsObj["nric"] === 'string' ? (paramsObj["nric"] as string) : '';
+  const resolvedParams: SearchParams = searchParams
+    ? await searchParams.catch(() => ({} as SearchParams))
+    : {};
+
+  const fullName = typeof resolvedParams.fullName === "string" ? resolvedParams.fullName : "";
+  const nric = typeof resolvedParams.nric === "string" ? resolvedParams.nric : "";
   return <NewPatientForm initialFullName={fullName} initialNric={nric} />;
 }

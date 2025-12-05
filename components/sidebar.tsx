@@ -2,26 +2,31 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Activity,
+  AlertTriangle,
+  BarChart,
   Calendar,
   ChevronLeft,
   ChevronRight,
   ClipboardListIcon,
+  Image,
   LayoutDashboard,
   LogOut,
   Package,
   Puzzle,
   Settings,
+  TestTube,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { useAuth } from "@/lib/auth";
+import { getEnabledModules } from "@/lib/modules";
 
 type SidebarModule = {
   id: string;
@@ -36,10 +41,8 @@ type SidebarProps = {
 
 const baseNavigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Analytics", href: "/analytics", icon: Activity },
   { name: "Patients", href: "/patients", icon: Users },
   { name: "Orders", href: "/orders", icon: ClipboardListIcon },
-  { name: "Inventory", href: "/inventory", icon: Package },
 ];
 
 const bottomNavigation = [
@@ -47,7 +50,12 @@ const bottomNavigation = [
 ];
 
 const moduleIconMap: Record<string, LucideIcon> = {
-  calendar: Calendar,
+  AlertTriangle,
+  TestTube,
+  Image,
+  Package,
+  Calendar,
+  BarChart,
 };
 
 export default function Sidebar({ modules = [] }: SidebarProps) {
@@ -55,20 +63,42 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [enabledModules, setEnabledModules] = useState<Array<{ name: string; href: string; icon: LucideIcon }>>([]);
+
+  // Load enabled modules dynamically
+  useEffect(() => {
+    const loadModules = () => {
+      const enabled = getEnabledModules();
+      const moduleNav = enabled
+        .filter(module => module.route) // Only modules with routes
+        .map(module => ({
+          name: module.name,
+          href: module.route!,
+          icon: moduleIconMap[module.icon as keyof typeof moduleIconMap] ?? Puzzle,
+        }));
+      setEnabledModules(moduleNav);
+    };
+
+    loadModules();
+
+    // Listen for module toggle events
+    const handleModuleChange = () => {
+      loadModules();
+    };
+
+    window.addEventListener('moduleToggle', handleModuleChange);
+    window.addEventListener('modulesReset', handleModuleChange);
+
+    return () => {
+      window.removeEventListener('moduleToggle', handleModuleChange);
+      window.removeEventListener('modulesReset', handleModuleChange);
+    };
+  }, []);
 
   const navigation = useMemo(() => {
-    if (!modules.length) {
-      return baseNavigation;
-    }
-
-    const moduleNavigation = modules.map((module) => ({
-      name: module.label,
-      href: module.routePath,
-      icon: module.icon ? moduleIconMap[module.icon] ?? Puzzle : Puzzle,
-    }));
-
-    return [...baseNavigation, ...moduleNavigation];
-  }, [modules]);
+    // Combine base navigation with enabled modules
+    return [...baseNavigation, ...enabledModules];
+  }, [enabledModules]);
 
   // Hide sidebar entirely on public routes like login/logout
   if (pathname?.startsWith('/login') || pathname?.startsWith('/signup')) {

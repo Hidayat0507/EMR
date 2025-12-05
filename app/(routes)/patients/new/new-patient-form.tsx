@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, Camera } from "lucide-react";
 import Link from "next/link";
-import { createPatient, Patient } from "@/lib/models";
+import { savePatient } from "@/lib/fhir/patient-client";
 import { useRouter } from "next/navigation";
 import React from "react";
 
@@ -119,21 +119,27 @@ export default function NewPatientForm({ initialFullName = "", initialNric = "" 
         }
       }
 
-      const cleanData = {
+      if (!dateOfBirthObj) {
+        toast({ title: "Error", description: "Invalid or missing Date of Birth.", variant: "destructive" });
+        return;
+      }
+
+      const dateOfBirthIso = dateOfBirthObj.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      const patientData = {
         fullName: data.fullName,
-        dateOfBirth: dateOfBirthObj,
+        dateOfBirth: dateOfBirthIso,
         gender: data.gender,
-        contact: data.phone,
         phone: data.phone,
-        email: data.email || "",
+        email: data.email || undefined,
         address: data.address || "",
-        postalCode: data.postalCode || "",
+        postalCode: data.postalCode || undefined,
         nric: data.nric,
-        emergencyContact: {
-          name: data.emergencyContact?.name || "",
-          relationship: data.emergencyContact?.relationship || "",
-          phone: data.emergencyContact?.phone || "",
-        },
+        emergencyContact: (data.emergencyContact?.name || data.emergencyContact?.phone) ? {
+          name: data.emergencyContact.name || "",
+          relationship: data.emergencyContact.relationship || "",
+          phone: data.emergencyContact.phone || "",
+        } : undefined,
         medicalHistory: {
           allergies: data.medicalHistory?.allergies?.split(',').map(s => s.trim()).filter(Boolean) || [],
           conditions: [],
@@ -141,16 +147,24 @@ export default function NewPatientForm({ initialFullName = "", initialNric = "" 
         }
       };
 
-      if (cleanData.dateOfBirth === undefined) {
-        toast({ title: "Error", description: "Invalid or missing Date of Birth.", variant: "destructive" });
-        return;
-      }
-
-      const patientId = await createPatient(cleanData as Omit<Patient, 'id' | 'createdAt' | 'updatedAt'>);
-      toast({ title: "Success", description: "Patient registered successfully" });
+      // 🎯 SAVE TO MEDPLUM (FHIR) - Source of Truth
+      const patientId = await savePatient(patientData);
+      
+      toast({ 
+        title: "Success", 
+        description: "Patient registered successfully in FHIR" 
+      });
+      
+      console.log(`✅ Patient saved to Medplum FHIR: ${patientId}`);
+      
       router.push(`/patients/${patientId}`);
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to register patient. Please try again.", variant: "destructive" });
+    } catch (error: any) {
+      console.error('Failed to register patient:', error);
+      toast({ 
+        title: "Error", 
+        description: error.message || "Failed to register patient. Please try again.", 
+        variant: "destructive" 
+      });
     }
   }
 
