@@ -13,6 +13,7 @@ import type {
 } from '@medplum/fhirtypes';
 import { QueueStatus, TriageData, VitalSigns } from '../types';
 import { TRIAGE_EXTENSION_URL } from './structure-definitions';
+import { createProvenanceForResource } from './provenance-service';
 
 // Local Patient interface that matches your app
 export interface PatientData {
@@ -335,10 +336,42 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
       id: existingPatient.id,
     });
     console.log(`✅ Updated FHIR Patient: ${savedPatient.id}`);
+    
+    // Create Provenance for update (non-blocking)
+    if (savedPatient.id) {
+      try {
+        await createProvenanceForResource(
+          'Patient',
+          savedPatient.id,
+          undefined,
+          clinicId,
+          'UPDATE'
+        );
+        console.log(`✅ Created Provenance for Patient/${savedPatient.id} (UPDATE)`);
+      } catch (error) {
+        console.warn(`⚠️  Failed to create Provenance for Patient (non-blocking):`, error);
+      }
+    }
   } else {
     // Create new patient
     savedPatient = await medplum.createResource(fhirPatient);
     console.log(`✅ Created FHIR Patient: ${savedPatient.id}`);
+    
+    // Create Provenance for audit trail (non-blocking)
+    if (savedPatient.id) {
+      try {
+        await createProvenanceForResource(
+          'Patient',
+          savedPatient.id,
+          undefined,
+          clinicId,
+          'CREATE'
+        );
+        console.log(`✅ Created Provenance for Patient/${savedPatient.id}`);
+      } catch (error) {
+        console.warn(`⚠️  Failed to create Provenance for Patient (non-blocking):`, error);
+      }
+    }
   }
 
   // Save allergies as AllergyIntolerance resources
@@ -346,7 +379,7 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     for (const allergy of patientData.medicalHistory.allergies) {
       if (!allergy.trim()) continue;
 
-      await medplum.createResource<AllergyIntolerance>({
+      const allergyResource = await medplum.createResource<AllergyIntolerance>({
         resourceType: 'AllergyIntolerance',
         patient: { reference: `Patient/${savedPatient.id}` },
         code: { text: allergy },
@@ -357,6 +390,21 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
           coding: [{ system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-verification', code: 'confirmed' }],
         },
       });
+      
+      // Create Provenance for audit trail (non-blocking)
+      if (allergyResource.id) {
+        try {
+          await createProvenanceForResource(
+            'AllergyIntolerance',
+            allergyResource.id,
+            undefined,
+            clinicId,
+            'CREATE'
+          );
+        } catch (error) {
+          console.warn(`⚠️  Failed to create Provenance for AllergyIntolerance (non-blocking):`, error);
+        }
+      }
     }
     console.log(`✅ Saved ${patientData.medicalHistory.allergies.length} allergies`);
   }
@@ -366,7 +414,7 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     for (const condition of patientData.medicalHistory.conditions) {
       if (!condition.trim()) continue;
 
-      await medplum.createResource<Condition>({
+      const conditionResource = await medplum.createResource<Condition>({
         resourceType: 'Condition',
         subject: { reference: `Patient/${savedPatient.id}` },
         code: { text: condition },
@@ -374,6 +422,21 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
           coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }],
         },
       });
+      
+      // Create Provenance for audit trail (non-blocking)
+      if (conditionResource.id) {
+        try {
+          await createProvenanceForResource(
+            'Condition',
+            conditionResource.id,
+            undefined,
+            clinicId,
+            'CREATE'
+          );
+        } catch (error) {
+          console.warn(`⚠️  Failed to create Provenance for Condition (non-blocking):`, error);
+        }
+      }
     }
     console.log(`✅ Saved ${patientData.medicalHistory.conditions.length} conditions`);
   }
@@ -383,12 +446,27 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     for (const medication of patientData.medicalHistory.medications) {
       if (!medication.trim()) continue;
 
-      await medplum.createResource<MedicationStatement>({
+      const medicationResource = await medplum.createResource<MedicationStatement>({
         resourceType: 'MedicationStatement',
         status: 'active',
         subject: { reference: `Patient/${savedPatient.id}` },
         medicationCodeableConcept: { text: medication },
       });
+      
+      // Create Provenance for audit trail (non-blocking)
+      if (medicationResource.id) {
+        try {
+          await createProvenanceForResource(
+            'MedicationStatement',
+            medicationResource.id,
+            undefined,
+            clinicId,
+            'CREATE'
+          );
+        } catch (error) {
+          console.warn(`⚠️  Failed to create Provenance for MedicationStatement (non-blocking):`, error);
+        }
+      }
     }
     console.log(`✅ Saved ${patientData.medicalHistory.medications.length} medications`);
   }

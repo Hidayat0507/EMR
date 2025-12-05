@@ -14,6 +14,7 @@ import type {
   DiagnosticReport,
   Patient as FHIRPatient,
 } from '@medplum/fhirtypes';
+import { createProvenanceForResource } from './provenance-service';
 
 /**
  * Imaging modality codes (DICOM)
@@ -211,6 +212,22 @@ export async function createImagingOrder(order: ImagingOrderRequest): Promise<st
     
     serviceRequests.push(serviceRequest);
     console.log(`✅ Created imaging ServiceRequest: ${serviceRequest.id} for ${procedure.display}`);
+    
+    // Create Provenance for audit trail (non-blocking)
+    if (serviceRequest.id) {
+      try {
+        await createProvenanceForResource(
+          'ServiceRequest',
+          serviceRequest.id,
+          order.orderedBy?.startsWith('Practitioner/') ? order.orderedBy.split('/')[1] : undefined,
+          undefined,
+          'CREATE'
+        );
+        console.log(`✅ Created Provenance for ServiceRequest/${serviceRequest.id}`);
+      } catch (error) {
+        console.warn(`⚠️  Failed to create Provenance for ServiceRequest (non-blocking):`, error);
+      }
+    }
   }
 
   return serviceRequests[0]?.id || '';
@@ -282,6 +299,22 @@ export async function receiveImagingStudy(
 
   console.log(`✅ Created ImagingStudy: ${imagingStudy.id}`);
 
+  // Create Provenance for audit trail (non-blocking)
+  if (imagingStudy.id) {
+    try {
+      await createProvenanceForResource(
+        'ImagingStudy',
+        imagingStudy.id,
+        undefined, // Could extract from serviceRequest.requester if needed
+        undefined,
+        'CREATE'
+      );
+      console.log(`✅ Created Provenance for ImagingStudy/${imagingStudy.id}`);
+    } catch (error) {
+      console.warn(`⚠️  Failed to create Provenance for ImagingStudy (non-blocking):`, error);
+    }
+  }
+
   // Update ServiceRequest status
   await medplum.updateResource({
     ...serviceRequest,
@@ -342,6 +375,22 @@ export async function createImagingReport(
   });
 
   console.log(`✅ Created imaging DiagnosticReport: ${report.id}`);
+
+  // Create Provenance for audit trail (non-blocking)
+  if (report.id) {
+    try {
+      await createProvenanceForResource(
+        'DiagnosticReport',
+        report.id,
+        radiologist ? undefined : undefined, // Could parse radiologist ID if provided
+        undefined,
+        'CREATE'
+      );
+      console.log(`✅ Created Provenance for DiagnosticReport/${report.id}`);
+    } catch (error) {
+      console.warn(`⚠️  Failed to create Provenance for DiagnosticReport (non-blocking):`, error);
+    }
+  }
 
   return report.id!;
 }

@@ -14,6 +14,7 @@ import type {
   Observation,
   Patient as FHIRPatient,
 } from '@medplum/fhirtypes';
+import { createProvenanceForResource } from './provenance-service';
 
 /**
  * Lab test catalog (restricted to required panels)
@@ -138,6 +139,22 @@ export async function createLabOrder(order: LabOrderRequest): Promise<string> {
     
     serviceRequests.push(serviceRequest);
     console.log(`✅ Created ServiceRequest: ${serviceRequest.id} for ${test.display}`);
+    
+    // Create Provenance for audit trail (non-blocking)
+    if (serviceRequest.id) {
+      try {
+        await createProvenanceForResource(
+          'ServiceRequest',
+          serviceRequest.id,
+          order.orderedBy?.startsWith('Practitioner/') ? order.orderedBy.split('/')[1] : undefined,
+          undefined,
+          'CREATE'
+        );
+        console.log(`✅ Created Provenance for ServiceRequest/${serviceRequest.id}`);
+      } catch (error) {
+        console.warn(`⚠️  Failed to create Provenance for ServiceRequest (non-blocking):`, error);
+      }
+    }
   }
 
   // Return the first service request ID (or you could return all IDs)
@@ -205,6 +222,22 @@ export async function receiveLabResults(
     
     observations.push(observation);
     console.log(`✅ Created Observation: ${observation.id} for ${result.testName}`);
+    
+    // Create Provenance for audit trail (non-blocking)
+    if (observation.id) {
+      try {
+        await createProvenanceForResource(
+          'Observation',
+          observation.id,
+          undefined,
+          undefined,
+          'CREATE'
+        );
+        console.log(`✅ Created Provenance for Observation/${observation.id}`);
+      } catch (error) {
+        console.warn(`⚠️  Failed to create Provenance for Observation (non-blocking):`, error);
+      }
+    }
   }
 
   // Create DiagnosticReport
@@ -228,6 +261,22 @@ export async function receiveLabResults(
   });
 
   console.log(`✅ Created DiagnosticReport: ${diagnosticReport.id}`);
+
+  // Create Provenance for audit trail (non-blocking)
+  if (diagnosticReport.id) {
+    try {
+      await createProvenanceForResource(
+        'DiagnosticReport',
+        diagnosticReport.id,
+        undefined,
+        undefined,
+        'CREATE'
+      );
+      console.log(`✅ Created Provenance for DiagnosticReport/${diagnosticReport.id}`);
+    } catch (error) {
+      console.warn(`⚠️  Failed to create Provenance for DiagnosticReport (non-blocking):`, error);
+    }
+  }
 
   // Update ServiceRequest status to completed
   await medplum.updateResource({

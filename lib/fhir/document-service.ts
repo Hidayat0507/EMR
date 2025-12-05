@@ -8,6 +8,7 @@ import { MedplumClient } from '@medplum/core';
 import type { DocumentReference } from '@medplum/fhirtypes';
 import { STORAGE_PATH_EXTENSION_URL } from './structure-definitions';
 import { validateFhirResource, logValidation } from './validation';
+import { createProvenanceForResource } from './provenance-service';
 
 let medplumClient: MedplumClient | undefined;
 let medplumInitPromise: Promise<MedplumClient> | undefined;
@@ -109,6 +110,21 @@ export async function createPatientDocument(doc: DocumentRegistration): Promise<
   if (!created.id) {
     throw new Error('Failed to create DocumentReference (missing id)');
   }
+
+  // Create Provenance for audit trail (non-blocking)
+  try {
+    await createProvenanceForResource(
+      'DocumentReference',
+      created.id,
+      doc.uploadedBy ? undefined : undefined, // Could parse uploadedBy if it's a Practitioner ID
+      undefined,
+      'CREATE'
+    );
+    console.log(`✅ Created Provenance for DocumentReference/${created.id}`);
+  } catch (error) {
+    console.warn(`⚠️  Failed to create Provenance for DocumentReference (non-blocking):`, error);
+  }
+
   return created.id;
 }
 
