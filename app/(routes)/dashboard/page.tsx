@@ -13,7 +13,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Patient, getTodaysQueue } from "@/lib/models";
+import type { Patient } from "@/lib/models";
 import QueueTable from "@/components/queue-table";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -32,8 +32,12 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getTodaysQueue();
-      setQueue(data);
+      const response = await fetch('/api/queue');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch queue: ${response.statusText}`);
+      }
+      const result = await response.json();
+      setQueue(result.patients || []);
     } catch (err) {
       console.error('Error loading queue:', err);
       setError('Failed to load queue data.');
@@ -69,7 +73,7 @@ export default function Dashboard() {
         description: `${patient.fullName}'s consultation has been started.`,
       });
       // Refresh the queue
-      const data = await getTodaysQueue();
+      const data = await getTriagedPatientsQueue();
       setQueue(data);
     } catch (error) {
       console.error('Error starting consultation:', error);
@@ -89,7 +93,7 @@ export default function Dashboard() {
         description: `${patient.fullName}'s consultation has been completed.`,
       });
       // Refresh the queue
-      const data = await getTodaysQueue();
+      const data = await getTriagedPatientsQueue();
       setQueue(data);
     } catch (error) {
       console.error('Error completing consultation:', error);
@@ -139,7 +143,7 @@ export default function Dashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{queue.length}</div>
             <p className="text-xs text-muted-foreground">
-              {queue.filter(p => p.queueStatus === 'waiting').length} waiting patients
+              {queue.filter(p => p.queueStatus === 'waiting' || p.queueStatus === 'arrived').length} waiting/arrived patients
             </p>
           </CardContent>
         </Card>

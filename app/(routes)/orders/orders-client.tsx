@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Patient, Consultation, getConsultationById, getPatientById } from "@/lib/models";
+import { Consultation } from "@/lib/models";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, MoreHorizontal } from "lucide-react";
@@ -55,46 +55,41 @@ export default function OrdersClient({ initialConsultations }: OrdersClientProps
     });
   }, [consultations, searchQuery]);
 
+  const fetchDetails = async (consultationId: string, patientId: string) => {
+    const res = await fetch(`/api/orders?consultationId=${consultationId}&patientId=${patientId}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch details');
+    }
+    const data = await res.json();
+    return data;
+  };
+
   const handleGenerate = async (consultationId: string, patientId: string, type: 'Bill' | 'MC' | 'Referral') => {
-    if (type === 'Bill') {
-      setBillLoading(true);
-      setCurrentBillData(null);
-      setIsBillModalOpen(true);
-      try {
-        const [patientData, consultationData] = await Promise.all([
-          getPatientById(patientId),
-          getConsultationById(consultationId)
-        ]);
-        if (!patientData || !consultationData) throw new Error('Failed to fetch details.');
-        setCurrentBillData({ patient: patientData, consultation: consultationData });
-      } catch (err) {
-        console.error(`Error fetching data for ${type}:`, err);
-        toast({ title: `Error generating ${type}`, description: err instanceof Error ? err.message : 'Could not load details.', variant: 'destructive' });
-        setIsBillModalOpen(false);
-      } finally {
-        setBillLoading(false);
-      }
-    } else if (type === 'MC') {
-      setMcLoading(true);
-      setCurrentMcData(null);
-      setIsMcModalOpen(true);
-      try {
-        const [patientData, consultationData] = await Promise.all([
-          getPatientById(patientId),
-          getConsultationById(consultationId)
-        ]);
-        if (!patientData || !consultationData) throw new Error('Failed to fetch details for MC.');
-        setCurrentMcData({ patient: patientData, consultation: consultationData });
-      } catch (err) {
-        console.error(`Error fetching data for ${type}:`, err);
-        toast({ title: `Error generating ${type}`, description: err instanceof Error ? err.message : 'Could not load details.', variant: 'destructive' });
-        setIsMcModalOpen(false);
-      } finally {
-        setMcLoading(false);
-      }
-    } else if (type === 'Referral') {
+    const isBill = type === 'Bill';
+    const setLoading = isBill ? setBillLoading : setMcLoading;
+    const setCurrentData = isBill ? setCurrentBillData : setCurrentMcData;
+    const setModalOpen = isBill ? setIsBillModalOpen : setIsMcModalOpen;
+
+    if (type === 'Referral') {
       console.log(`Generating ${type} for consultation ${consultationId}, patient ${patientId}`);
       toast({ title: `Generating ${type}... (Not implemented)` });
+      return;
+    }
+
+    setLoading(true);
+    setCurrentData(null);
+    setModalOpen(true);
+    try {
+      const { patient, consultation } = await fetchDetails(consultationId, patientId);
+      if (!patient || !consultation) throw new Error('Failed to fetch details.');
+      setCurrentData({ patient, consultation });
+    } catch (err) {
+      console.error(`Error fetching data for ${type}:`, err);
+      toast({ title: `Error generating ${type}`, description: err instanceof Error ? err.message : 'Could not load details.', variant: 'destructive' });
+      setModalOpen(false);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -185,14 +180,14 @@ export default function OrdersClient({ initialConsultations }: OrdersClientProps
         </CardContent>
       </Card>
 
-      <BillModal 
+      <BillModal
         isOpen={isBillModalOpen}
         onClose={() => setIsBillModalOpen(false)}
         isLoading={billLoading}
         data={currentBillData}
       />
 
-      <McModal 
+      <McModal
         isOpen={isMcModalOpen}
         onClose={() => setIsMcModalOpen(false)}
         isLoading={mcLoading}

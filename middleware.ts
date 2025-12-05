@@ -1,62 +1,54 @@
-import { NextResponse, NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-// Protect all app routes except public ones
-const PUBLIC_PATHS: RegExp[] = [
-  /^\/login(?:$|\/)/,
-  /^\/logout(?:$|\/)/,
-  /^\/api\/auth\/session(?:$|\/)/,
-  // Allow OCR API unauthenticated in development for local testing
-  ...(process.env.NODE_ENV !== 'production' ? [/^\/api\/ocr(?:$|\/)/] : []),
-  // Allow registration and scan routes in development for local testing
-  ...(process.env.NODE_ENV !== 'production' ? [/^\/patients\/new(?:$|\/)/, /^\/patients\/new\/scan(?:$|\/)/] : []),
-];
+const CLINIC_COOKIE_NAME = 'medplum-clinic';
+const BASE_DOMAIN = process.env.NEXT_PUBLIC_BASE_DOMAIN || ''; // e.g. example.com
 
+function deriveClinicFromHost(host: string | null): string | null {
+  if (!host) return null;
+
+  // Ignore localhost and direct IPs
+  if (host.startsWith('localhost') || /^\d{1,3}(\.\d{1,3}){3}/.test(host)) {
+    return null;
+  }
+
+  const parts = host.split(':')[0].split('.');
+  if (parts.length < 3) return null; // no subdomain present
+
+  const [subdomain, ...rest] = parts;
+
+  // If BASE_DOMAIN is set, ensure the host matches it before trusting the subdomain
+  if (BASE_DOMAIN) {
+    const baseParts = BASE_DOMAIN.split('.');
+    if (rest.join('.') !== baseParts.join('.')) {
+      return null;
+    }
+  }
+
+  // Ignore common non-clinic subdomains
+  if (['www', 'app'].includes(subdomain)) return null;
+
+  return subdomain;
+}
+
+// Auth is intentionally open, but we still derive clinic from subdomain to scope requests.
 export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const clinicId = deriveClinicFromHost(req.headers.get('host'));
 
-  // Optional HTTP Basic Auth gate (useful for staging)
-  const basicAuthEnabled = process.env.BASIC_AUTH_ENABLED === 'true';
-  if (basicAuthEnabled) {
-    const header = req.headers.get('authorization') || '';
-    const expectedUser = process.env.BASIC_AUTH_USERNAME || '';
-    const expectedPass = process.env.BASIC_AUTH_PASSWORD || '';
-    const unauthorized = () => new NextResponse('Unauthorized', {
-      status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="Protected"' },
-    });
-
-    if (!header.startsWith('Basic ')) {
-      return unauthorized();
-    }
-    try {
-      const base64 = header.slice(6);
-      const decoded = atob(base64);
-      const [user, pass] = decoded.split(':');
-      if (user !== expectedUser || pass !== expectedPass) {
-        return unauthorized();
-      }
-    } catch {
-      return unauthorized();
+  const res = NextResponse.next();
+  if (clinicId) {
+    const existing = req.cookies.get(CLINIC_COOKIE_NAME)?.value;
+    if (existing !== clinicId) {
+      res.cookies.set(CLINIC_COOKIE_NAME, clinicId, {
+        httpOnly: false,
+        sameSite: 'lax',
+        path: '/',
+      });
     }
   }
 
-  // Skip public paths
-  if (PUBLIC_PATHS.some((rx) => rx.test(pathname))) {
-    return NextResponse.next();
-  }
-
-  const sessionCookie = req.cookies.get('emr_session')?.value;
-  if (!sessionCookie) {
-    const loginUrl = new URL('/login', req.url);
-    loginUrl.searchParams.set('next', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  return NextResponse.next();
+  return res;
 }
 
 export const config = {
   matcher: ['/((?!_next|static|favicon.ico|manifest.json).*)'],
 };
-
-

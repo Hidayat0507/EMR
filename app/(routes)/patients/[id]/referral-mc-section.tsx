@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,8 +30,19 @@ import {
 import { format } from "date-fns";
 import { FileText, Plus, Download } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
-import { createReferral, getReferralsByPatientId, Referral } from "@/lib/models";
-import { PDFViewer, pdf, Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { saveReferral, getPatientReferrals, type Referral } from "@/lib/fhir/referral-client";
+import { PDFViewer, pdf } from "@react-pdf/renderer";
+import ReferralDocument from "@/components/referrals/referral-document";
+import { fetchOrganizationDetails, type OrganizationDetails } from "@/lib/org";
+
+function formatDateLabel(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return format(date, "dd MMM yyyy");
+}
 
 // Mock referral specialties
 const specialties = [
@@ -67,6 +78,7 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
   const [facility, setFacility] = useState<string>("");
   const [doctorName, setDoctorName] = useState<string>("");
   const [urgency, setUrgency] = useState<'routine' | 'urgent' | 'emergency' | "">("");
+  const [department, setDepartment] = useState<string>("");
   const [reason, setReason] = useState<string>("");
   const [clinicalInfo, setClinicalInfo] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
@@ -74,20 +86,17 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewing, setViewing] = useState<Referral | null>(null);
-
-  const styles = useMemo(() => StyleSheet.create({
-    page: { padding: 32, fontSize: 12, color: '#111827' },
-    title: { fontSize: 16, fontWeight: 'bold', marginBottom: 12 },
-    body: { lineHeight: 1.5 },
-  }), []);
+  const [organization, setOrganization] = useState<OrganizationDetails | null>(null);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const list = await getReferralsByPatientId(patient.id);
+        // 🎯 LOAD FROM MEDPLUM (FHIR ServiceRequest) - Source of Truth
+        const list = await getPatientReferrals(patient.id);
+        console.log(`✅ Loaded ${list.length} referrals from Medplum FHIR`);
         if (!active) return;
-        setReferrals(list.sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())));
+        setReferrals(list as any);
       } finally {
         if (active) setLoading(false);
       }
@@ -95,11 +104,24 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
     return () => { active = false; };
   }, [patient.id]);
 
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const orgDetails = await fetchOrganizationDetails();
+      if (!active) return;
+      setOrganization(orgDetails);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const resetForm = () => {
     setSpecialty("");
     setFacility("");
     setDoctorName("");
     setUrgency("");
+    setDepartment("");
     setReason("");
     setClinicalInfo("");
   };
@@ -112,6 +134,9 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
     }
     lines.push(`Specialty: ${specialty}`);
     lines.push(`Facility: ${facility}`);
+    if (department) {
+      lines.push(`Department: ${department}`);
+    }
     if (doctorName) lines.push(`Referred Doctor: ${doctorName}`);
     if (urgency) lines.push(`Urgency: ${urgency.toUpperCase()}`);
     if (reason) {
@@ -150,21 +175,26 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
         throw new Error(data?.error || "Failed to generate letter");
       }
       const letterText: string = typeof data.letter === 'string' ? data.letter : sourceText;
-      const id = await createReferral({
+      
+      // 🎯 SAVE TO MEDPLUM (FHIR ServiceRequest) - Source of Truth
+      const id = await saveReferral({
         patientId: patient.id,
         date: new Date(),
         specialty,
         facility,
         doctorName: doctorName || undefined,
+        department: department || undefined,
         urgency: (urgency || undefined) as any,
-        reason: reason || undefined,
-        clinicalInfo: clinicalInfo || undefined,
-        letterText,
+        reason: reason || '',
+        clinicalInfo: `${clinicalInfo || ''}\n\nGenerated Letter:\n${letterText}`,
       });
+      
+      console.log(`✅ Referral saved to Medplum FHIR: ${id}`);
+      
       // Refresh list
-      const list = await getReferralsByPatientId(patient.id);
-      setReferrals(list.sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())));
-      toast({ title: "Referral saved", description: "Referral letter generated and saved." });
+      const list = await getPatientReferrals(patient.id);
+      setReferrals(list as any);
+      toast({ title: "Referral saved", description: "Referral letter generated and saved to FHIR." });
       setShowReferralDialog(false);
       resetForm();
     } catch (err: any) {
@@ -191,13 +221,13 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
                   New Referral
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-3xl">
-                <DialogHeader>
-                  <DialogTitle>Generate Referral Letter</DialogTitle>
-                  <DialogDescription>
-                    Create a new referral letter for the patient
-                  </DialogDescription>
-                </DialogHeader>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Generate Referral Letter</DialogTitle>
+                <DialogDescription>
+                  Create a new referral letter for the patient
+                </DialogDescription>
+              </DialogHeader>
                 <form className="space-y-4" onSubmit={handleGenerateReferral}>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -225,6 +255,14 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Department</Label>
+                      <Input
+                        placeholder="Enter department or unit"
+                        value={department}
+                        onChange={(e) => setDepartment(e.target.value)}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Doctor&apos;s Name</Label>
@@ -282,7 +320,7 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
                   <div>
                     <p className="font-medium">{r.specialty} Referral</p>
                     <p className="text-sm text-muted-foreground">
-                      {r.facility} - {format(new Date(r.date), "dd MMM yyyy")}
+                      {[r.facility, r.department].filter(Boolean).join(" • ")} - {r.date ? format(new Date(r.date), "dd MMM yyyy") : 'N/A'}
                     </p>
                   </div>
                 </div>
@@ -400,14 +438,24 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
                 <div className="flex flex-col h-full gap-4">
                   <div className="flex-1 min-h-0 border rounded-lg overflow-hidden">
                     <PDFViewer className="w-full h-full">
-                      <Document>
-                        <Page size="A4" style={styles.page}>
-                          <View>
-                            <Text style={styles.title}>Referral Letter</Text>
-                            <Text style={styles.body}>{viewing.letterText}</Text>
-                          </View>
-                        </Page>
-                      </Document>
+                      <ReferralDocument
+                        letterText={(viewing as any).letterText || ''}
+                        organization={organization}
+                        metadata={{
+                          dateLabel: viewing.date ? format(new Date(viewing.date), "dd MMM yyyy") : null,
+                          patientName: patient.fullName,
+                          patientId: patient.nric,
+                          patientDateOfBirth: formatDateLabel(patient.dateOfBirth),
+                          patientPhone: patient.phone ?? null,
+                          patientEmail: patient.email ?? null,
+                          specialty: viewing.specialty,
+                          facility: viewing.facility,
+                          department: viewing.department ?? null,
+                          doctorName: viewing.doctorName ?? null,
+                          toLine: [viewing.department, viewing.facility].filter(Boolean).join(", ") || null,
+                          fromLine: organization?.name ?? null,
+                        }}
+                      />
                     </PDFViewer>
                   </div>
                 </div>
@@ -420,14 +468,24 @@ export default function ReferralMCSection({ patient }: ReferralMCSectionProps) {
                 onClick={async () => {
                   if (!viewing) return;
                   const blob = await pdf(
-                    <Document>
-                      <Page size="A4" style={styles.page}>
-                        <View>
-                          <Text style={styles.title}>Referral Letter</Text>
-                          <Text style={styles.body}>{viewing.letterText}</Text>
-                        </View>
-                      </Page>
-                    </Document>
+                    <ReferralDocument
+                      letterText={(viewing as any).letterText || ''}
+                      organization={organization}
+                      metadata={{
+                        dateLabel: viewing.date ? format(new Date(viewing.date), "dd MMM yyyy") : null,
+                        patientName: patient.fullName,
+                        patientId: patient.nric,
+                        patientDateOfBirth: formatDateLabel(patient.dateOfBirth),
+                        patientPhone: patient.phone ?? null,
+                        patientEmail: patient.email ?? null,
+                        specialty: viewing.specialty,
+                        facility: viewing.facility,
+                        department: viewing.department ?? null,
+                        doctorName: viewing.doctorName ?? null,
+                        toLine: [viewing.department, viewing.facility].filter(Boolean).join(", ") || null,
+                        fromLine: organization?.name ?? null,
+                      }}
+                    />
                   ).toBlob();
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');

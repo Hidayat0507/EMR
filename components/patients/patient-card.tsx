@@ -36,6 +36,8 @@ interface PatientCardProps {
 }
 
 export function PatientCard({ patient, compact = false }: PatientCardProps) {
+  const age = calculateAge(patient.dateOfBirth);
+
   return (
     <Card className="border-none shadow-sm bg-gradient-to-br from-primary/5 to-primary/10">
       <CardContent className={compact ? "p-2" : "p-4"}>
@@ -61,7 +63,9 @@ export function PatientCard({ patient, compact = false }: PatientCardProps) {
                 <Calendar className="h-3 w-3 text-primary flex-shrink-0" />
                 <div className="flex">
                   <span className="mr-1">Age:</span>
-                  <span className="font-medium text-foreground">{`${calculateAge(patient.dateOfBirth)} years`}</span>
+                  <span className="font-medium text-foreground">
+                    {age !== null ? `${age} years` : "N/A"}
+                  </span>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">

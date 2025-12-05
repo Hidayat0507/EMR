@@ -1,7 +1,5 @@
-import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
-import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
+import type { OrganizationDetails } from "@/lib/org";
 
 const styles = StyleSheet.create({
   page: {
@@ -153,24 +151,12 @@ interface BillDocumentProps {
       price: number;
     }>;
   };
+  organization?: OrganizationDetails | null;
 }
 
-export function BillDocument({ data }: BillDocumentProps) {
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [org, setOrg] = useState<{ name?: string; address?: string; phone?: string } | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const snap = await getDoc(doc(db, 'settings', 'org'));
-        if (snap.exists()) {
-          const data = snap.data() as any;
-          setLogoUrl(data.logoUrl || null);
-          setOrg({ name: data.name, address: data.address, phone: data.phone });
-        }
-      } catch {}
-    })();
-  }, []);
+export function BillDocument({ data, organization }: BillDocumentProps) {
+  const logoUrl = organization?.logoUrl ?? null;
+  const org = organization ?? null;
 
   const calculateSubtotal = (items: Array<{ price: number }>) => {
     return items.reduce((sum, item) => sum + item.price, 0);

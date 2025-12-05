@@ -1,20 +1,24 @@
 "use client";
 
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogDescription, 
-  DialogFooter 
+import { useEffect, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Patient, Consultation, ProcedureRecord, Prescription } from "@/lib/models";
+import { Patient, Consultation } from "@/lib/models";
 import { formatDisplayDate } from "@/lib/utils";
-import { Loader2, Download } from "lucide-react"; // For loading state
-import { PDFViewer, pdf } from '@react-pdf/renderer';
+import { Loader2, Download } from "lucide-react";
+import { PDFViewer, pdf } from "@react-pdf/renderer";
 import { BillDocument } from "@/components/bill-document";
+import {
+  fetchOrganizationDetails,
+  type OrganizationDetails,
+} from "@/lib/org";
 
 interface BillModalProps {
   isOpen: boolean;
@@ -23,25 +27,55 @@ interface BillModalProps {
   data: { patient: Patient | null; consultation: Consultation | null } | null;
 }
 
-// Helper to safely get price or return 0
-const getItemPrice = (item: ProcedureRecord | Prescription): number => {
-  return item?.price ?? 0;
-};
-
 export default function BillModal({ isOpen, onClose, isLoading, data }: BillModalProps) {
   const { patient, consultation } = data || {};
+  const [organization, setOrganization] = useState<OrganizationDetails | null>(null);
+  const [orgLoaded, setOrgLoaded] = useState(false);
+  const [orgLoading, setOrgLoading] = useState(false);
 
-  const calculateTotal = (): number => {
-    if (!consultation) return 0;
-    const prescriptionTotal = consultation.prescriptions?.reduce((sum, item) => sum + getItemPrice(item), 0) || 0;
-    const procedureTotal = consultation.procedures?.reduce((sum, item) => sum + getItemPrice(item), 0) || 0;
-    return prescriptionTotal + procedureTotal;
+  useEffect(() => {
+    let active = true;
+    setOrgLoading(true);
+    fetchOrganizationDetails()
+      .then((info) => {
+        if (!active) return;
+        setOrganization(info);
+        setOrgLoaded(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        setOrgLoaded(true);
+      })
+      .finally(() => {
+        if (!active) return;
+        setOrgLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const ensureOrganizationDetails = async (): Promise<OrganizationDetails | null> => {
+    if (orgLoaded) {
+      return organization;
+    }
+
+    setOrgLoading(true);
+    try {
+      const info = await fetchOrganizationDetails();
+      setOrganization(info);
+      setOrgLoaded(true);
+      return info;
+    } finally {
+      setOrgLoading(false);
+    }
   };
 
   const handleDownloadPdf = async () => {
     if (!patient || !consultation) return;
+    const orgInfo = await ensureOrganizationDetails();
     const dataForPdf = buildBillData(patient, consultation);
-    const blob = await pdf(<BillDocument data={dataForPdf} />).toBlob();
+    const blob = await pdf(<BillDocument data={dataForPdf} organization={orgInfo} />).toBlob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -102,7 +136,10 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
             ) : (
               <div className="h-full border rounded-lg overflow-hidden">
                 <PDFViewer className="w-full h-full">
-                  <BillDocument data={buildBillData(patient, consultation)} />
+                  <BillDocument
+                    data={buildBillData(patient, consultation)}
+                    organization={organization}
+                  />
                 </PDFViewer>
               </div>
             )}
@@ -111,7 +148,10 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
           <DialogFooter className="px-6 py-4 border-t">
             <Button variant="outline" onClick={onClose}>Close</Button>
             {patient && consultation && (
-              <Button onClick={handleDownloadPdf} disabled={isLoading}>
+              <Button
+                onClick={handleDownloadPdf}
+                disabled={isLoading || (orgLoading && !orgLoaded)}
+              >
                 <Download className="h-4 w-4 mr-2" /> Download PDF
               </Button>
             )}
@@ -120,4 +160,4 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
       </DialogContent>
     </Dialog>
   );
-} 
+}

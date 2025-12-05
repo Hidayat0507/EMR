@@ -11,11 +11,11 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, MoreHorizontal, UserPlus, X, Receipt } from "lucide-react";
+import { Clock, MoreHorizontal, UserPlus, X, Receipt, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { TRIAGE_LEVELS } from "@/lib/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/use-toast";
-import { addPatientToQueue, removePatientFromQueue, updateQueueStatus } from "@/lib/actions";
 import { QueueStatus } from "@/lib/types";
 import { useRouter } from 'next/navigation';
 
@@ -24,12 +24,28 @@ interface QueueTableProps {
   onQueueUpdate?: () => Promise<void>;
 }
 
+function formatAddedAt(value?: string | Date | null) {
+  if (!value) return 'N/A';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  const iso = date.toISOString();
+  return iso.slice(11, 19); // HH:MM:SS (UTC) to avoid hydration mismatch
+}
+
 export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps) {
   const router = useRouter();
 
   const handleAddToQueue = async (patient: Patient) => {
     try {
-      await addPatientToQueue(patient.id);
+      const res = await fetch('/api/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: patient.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to add to queue');
+      }
       toast({
         title: "Added to Queue",
         description: `${patient.fullName} has been added to the queue.`,
@@ -49,7 +65,15 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
 
   const handleStartConsultation = async (patient: Patient) => {
     try {
-      await updateQueueStatus(patient.id, 'in_consultation');
+      const res = await fetch('/api/queue', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: patient.id, status: 'in_consultation' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update status');
+      }
       router.push(`/patients/${patient.id}/consultation`);
       
       toast({
@@ -72,7 +96,15 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
 
   const handleCompleteConsultation = async (patient: Patient) => {
     try {
-      await updateQueueStatus(patient.id, 'completed');
+      const res = await fetch('/api/queue', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: patient.id, status: 'completed' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update status');
+      }
       toast({
         title: "Consultation Completed",
         description: `${patient.fullName}'s consultation has been marked as completed.`,
@@ -92,7 +124,15 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
 
   const handleRemoveFromQueue = async (patient: Patient) => {
     try {
-      await removePatientFromQueue(patient.id);
+      const res = await fetch('/api/queue', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: patient.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to remove from queue');
+      }
       toast({
         title: "Removed from Queue",
         description: `${patient.fullName} has been removed from the queue.`,
@@ -112,6 +152,13 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
 
   const getStatusBadge = (status: QueueStatus | undefined) => {
     switch (status) {
+      case 'arrived':
+        return (
+          <Badge variant="outline" className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Arrived (awaiting triage)
+          </Badge>
+        );
       case 'waiting':
         return (
           <Badge variant="secondary" className="flex items-center gap-1">
@@ -145,6 +192,33 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
     }
   };
 
+  const getTriageBadge = (triageLevel: number | undefined) => {
+    if (!triageLevel) {
+      return (
+        <Badge variant="outline" className="flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          Not Triaged
+        </Badge>
+      );
+    }
+
+    const triageInfo = TRIAGE_LEVELS[triageLevel as keyof typeof TRIAGE_LEVELS];
+    const colorClasses = {
+      1: "bg-red-500 text-white hover:bg-red-600",
+      2: "bg-orange-500 text-white hover:bg-orange-600",
+      3: "bg-yellow-500 text-zinc-900 hover:bg-yellow-600",
+      4: "bg-green-500 text-white hover:bg-green-600",
+      5: "bg-blue-500 text-white hover:bg-blue-600",
+    };
+
+    return (
+      <Badge className={`flex items-center gap-1 ${colorClasses[triageLevel as keyof typeof colorClasses]}`}>
+        <span className="font-bold">{triageLevel}</span>
+        <span className="hidden md:inline">- {triageInfo?.label}</span>
+      </Badge>
+    );
+  };
+
   return (
     <div className="rounded-md border">
       <Table>
@@ -154,6 +228,8 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
             <TableHead>Patient Name</TableHead>
             <TableHead>NRIC</TableHead>
             <TableHead>Phone</TableHead>
+            <TableHead>Triage Level</TableHead>
+            <TableHead>Chief Complaint</TableHead>
             <TableHead>Added At</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -174,9 +250,13 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
               <TableCell>{patient.nric}</TableCell>
               <TableCell>{patient.phone}</TableCell>
               <TableCell>
-                {patient.queueAddedAt 
-                  ? new Date(patient.queueAddedAt).toLocaleTimeString()
-                  : 'N/A'}
+                {getTriageBadge(patient.triage?.triageLevel)}
+              </TableCell>
+              <TableCell className="max-w-[200px] truncate">
+                {patient.triage?.chiefComplaint || 'N/A'}
+              </TableCell>
+              <TableCell>
+                {formatAddedAt(patient.queueAddedAt)}
               </TableCell>
               <TableCell>
                 {getStatusBadge(patient.queueStatus)}
@@ -194,6 +274,13 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
                         View Details
                       </Link>
                     </DropdownMenuItem>
+                    {!patient.triage?.isTriaged && (
+                      <DropdownMenuItem asChild>
+                        <Link href={`/patients/${patient.id}/triage`}>
+                          Perform Triage
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
                     {patient.queueStatus === 'waiting' && (
                       <DropdownMenuItem onClick={() => handleStartConsultation(patient)}>
                         Start Consultation
@@ -211,7 +298,7 @@ export default function QueueTable({ patients, onQueueUpdate }: QueueTableProps)
           ))}
           {patients.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center py-4">
+              <TableCell colSpan={9} className="text-center py-4">
                 No patients in queue
               </TableCell>
             </TableRow>
