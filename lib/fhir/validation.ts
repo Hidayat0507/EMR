@@ -45,6 +45,21 @@ export function validateFhirResource(resource: any): ValidationResult {
     case 'DocumentReference':
       validateDocumentReference(resource, errors, warnings);
       break;
+    case 'Observation':
+      validateObservation(resource, errors, warnings);
+      break;
+    case 'ImagingStudy':
+      validateImagingStudy(resource, errors, warnings);
+      break;
+    case 'DiagnosticReport':
+      validateDiagnosticReport(resource, errors, warnings);
+      break;
+    case 'AllergyIntolerance':
+      validateAllergyIntolerance(resource, errors, warnings);
+      break;
+    case 'MedicationStatement':
+      validateMedicationStatement(resource, errors, warnings);
+      break;
     default:
       warnings.push(`No specific validation for ${resource.resourceType}`);
   }
@@ -284,6 +299,106 @@ function validateDocumentReference(resource: any, errors: string[], warnings: st
   if (!resource.author || resource.author.length === 0) {
     warnings.push('DocumentReference: Missing recommended field: author');
   }
+}
+
+/**
+ * Validate Observation resource
+ */
+function validateObservation(obs: any, errors: string[], warnings: string[]) {
+  if (!obs.status) {
+    errors.push('Observation: status is required');
+  }
+
+  if (!obs.code) {
+    errors.push('Observation: code is required');
+  } else {
+    if (!obs.code.text && (!obs.code.coding || obs.code.coding.length === 0)) {
+      warnings.push('Observation: code should have text or coding');
+    }
+  }
+
+  if (!obs.subject || !obs.subject.reference) {
+    errors.push('Observation: subject reference is required');
+  }
+
+  validateReference(obs.subject, 'Observation.subject', errors);
+  if (obs.encounter) {
+    validateReference(obs.encounter, 'Observation.encounter', errors);
+  }
+}
+
+/**
+ * Validate ImagingStudy resource
+ */
+function validateImagingStudy(study: any, errors: string[], warnings: string[]) {
+  if (!study.status) {
+    errors.push('ImagingStudy: status is required');
+  }
+
+  if (!study.subject || !study.subject.reference) {
+    errors.push('ImagingStudy: subject reference is required');
+  }
+
+  validateReference(study.subject, 'ImagingStudy.subject', errors);
+  if (study.encounter) {
+    validateReference(study.encounter, 'ImagingStudy.encounter', errors);
+  }
+}
+
+/**
+ * Validate DiagnosticReport resource
+ */
+function validateDiagnosticReport(report: any, errors: string[], warnings: string[]) {
+  if (!report.status) {
+    errors.push('DiagnosticReport: status is required');
+  }
+
+  if (!report.code) {
+    errors.push('DiagnosticReport: code is required');
+  }
+
+  if (!report.subject || !report.subject.reference) {
+    errors.push('DiagnosticReport: subject reference is required');
+  }
+
+  validateReference(report.subject, 'DiagnosticReport.subject', errors);
+  if (report.encounter) {
+    validateReference(report.encounter, 'DiagnosticReport.encounter', errors);
+  }
+}
+
+/**
+ * Validate AllergyIntolerance resource
+ */
+function validateAllergyIntolerance(allergy: any, errors: string[], warnings: string[]) {
+  if (!allergy.patient || !allergy.patient.reference) {
+    errors.push('AllergyIntolerance: patient reference is required');
+  }
+
+  if (!allergy.code) {
+    errors.push('AllergyIntolerance: code is required');
+  }
+
+  validateReference(allergy.patient, 'AllergyIntolerance.patient', errors);
+}
+
+/**
+ * Validate MedicationStatement resource
+ */
+function validateMedicationStatement(med: any, errors: string[], warnings: string[]) {
+  if (!med.status) {
+    errors.push('MedicationStatement: status is required');
+  }
+
+  if (!med.subject || !med.subject.reference) {
+    errors.push('MedicationStatement: subject reference is required');
+  }
+
+  if (!med.medicationCodeableConcept && !med.medicationReference) {
+    errors.push('MedicationStatement: medication is required');
+  }
+
+  validateReference(med.subject, 'MedicationStatement.subject', errors);
 }
 
 /**

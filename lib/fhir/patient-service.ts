@@ -14,6 +14,7 @@ import type {
 import { QueueStatus, TriageData, VitalSigns } from '../types';
 import { TRIAGE_EXTENSION_URL } from './structure-definitions';
 import { createProvenanceForResource } from './provenance-service';
+import { validateAndCreate } from './fhir-helpers';
 
 // Local Patient interface that matches your app
 export interface PatientData {
@@ -354,7 +355,7 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     }
   } else {
     // Create new patient
-    savedPatient = await medplum.createResource(fhirPatient);
+    savedPatient = await validateAndCreate<FHIRPatient>(medplum, fhirPatient);
     console.log(`✅ Created FHIR Patient: ${savedPatient.id}`);
     
     // Create Provenance for audit trail (non-blocking)
@@ -379,7 +380,7 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     for (const allergy of patientData.medicalHistory.allergies) {
       if (!allergy.trim()) continue;
 
-      const allergyResource = await medplum.createResource<AllergyIntolerance>({
+      const allergyResource = await validateAndCreate<AllergyIntolerance>(medplum, {
         resourceType: 'AllergyIntolerance',
         patient: { reference: `Patient/${savedPatient.id}` },
         code: { text: allergy },
@@ -414,7 +415,7 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     for (const condition of patientData.medicalHistory.conditions) {
       if (!condition.trim()) continue;
 
-      const conditionResource = await medplum.createResource<Condition>({
+      const conditionResource = await validateAndCreate<Condition>(medplum, {
         resourceType: 'Condition',
         subject: { reference: `Patient/${savedPatient.id}` },
         code: { text: condition },
@@ -446,7 +447,7 @@ export async function savePatientToMedplum(patientData: PatientData, clinicId?: 
     for (const medication of patientData.medicalHistory.medications) {
       if (!medication.trim()) continue;
 
-      const medicationResource = await medplum.createResource<MedicationStatement>({
+      const medicationResource = await validateAndCreate<MedicationStatement>(medplum, {
         resourceType: 'MedicationStatement',
         status: 'active',
         subject: { reference: `Patient/${savedPatient.id}` },

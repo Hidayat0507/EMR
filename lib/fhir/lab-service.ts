@@ -15,6 +15,8 @@ import type {
   Patient as FHIRPatient,
 } from '@medplum/fhirtypes';
 import { createProvenanceForResource } from './provenance-service';
+import { validateAndCreate } from './fhir-helpers';
+import { createResourcesInBundle } from './bundle-helpers';
 
 /**
  * Lab test catalog (restricted to required panels)
@@ -107,7 +109,7 @@ export async function createLabOrder(order: LabOrderRequest): Promise<string> {
   for (const testCode of order.tests) {
     const test = LAB_TESTS[testCode];
     
-    const serviceRequest = await medplum.createResource<ServiceRequest>({
+    const serviceRequest = await validateAndCreate<ServiceRequest>(medplum, {
       resourceType: 'ServiceRequest',
       status: 'active',
       intent: 'order',
@@ -180,11 +182,11 @@ export async function receiveLabResults(
     throw new Error('ServiceRequest has no patient reference');
   }
 
-  // Create Observation for each result
-  const observations: Observation[] = [];
+  // Create Observation resources (prepare for Bundle)
+  const observationResources: Observation[] = [];
   
   for (const result of results) {
-    const observation = await medplum.createResource<Observation>({
+    observationResources.push({
       resourceType: 'Observation',
       status: result.status as any,
       code: {
@@ -218,30 +220,12 @@ export async function receiveLabResults(
           display: result.interpretation,
         }],
       }] : undefined,
-    });
-    
-    observations.push(observation);
-    console.log(`✅ Created Observation: ${observation.id} for ${result.testName}`);
-    
-    // Create Provenance for audit trail (non-blocking)
-    if (observation.id) {
-      try {
-        await createProvenanceForResource(
-          'Observation',
-          observation.id,
-          undefined,
-          undefined,
-          'CREATE'
-        );
-        console.log(`✅ Created Provenance for Observation/${observation.id}`);
-      } catch (error) {
-        console.warn(`⚠️  Failed to create Provenance for Observation (non-blocking):`, error);
-      }
-    }
+    } as Observation);
   }
 
-  // Create DiagnosticReport
-  const diagnosticReport = await medplum.createResource<DiagnosticReport>({
+  // Create DiagnosticReport resource (prepare for Bundle)
+  // Note: We'll need to update result references after Observations are created
+  const diagnosticReportResource: DiagnosticReport = {
     resourceType: 'DiagnosticReport',
     status: results.every(r => r.status === 'final') ? 'final' : 'partial',
     code: serviceRequest.code || { text: 'Laboratory Report' },
@@ -251,14 +235,35 @@ export async function receiveLabResults(
     encounter: serviceRequest.encounter,
     effectiveDateTime: new Date().toISOString(),
     issued: new Date().toISOString(),
-    result: observations.map(obs => ({
-      reference: `Observation/${obs.id}`,
-    })),
+    result: [], // Will be populated after Observations are created
     conclusion: conclusion,
     basedOn: [{
       reference: `ServiceRequest/${serviceRequestId}`,
     }],
-  });
+  };
+
+  // Create all Observations in a Bundle transaction
+  const observations = await createResourcesInBundle<Observation>(medplum, observationResources);
+  console.log(`✅ Created ${observations.length} Observations in Bundle transaction`);
+
+  // Create Provenance for Observations (non-blocking)
+  for (const obs of observations) {
+    if (obs.id) {
+      try {
+        await createProvenanceForResource('Observation', obs.id, undefined, undefined, 'CREATE');
+      } catch (error) {
+        console.warn(`⚠️  Failed to create Provenance for Observation/${obs.id} (non-blocking):`, error);
+      }
+    }
+  }
+
+  // Update DiagnosticReport with Observation references
+  diagnosticReportResource.result = observations.map(obs => ({
+    reference: `Observation/${obs.id}`,
+  }));
+
+  // Create DiagnosticReport
+  const diagnosticReport = await validateAndCreate<DiagnosticReport>(medplum, diagnosticReportResource);
 
   console.log(`✅ Created DiagnosticReport: ${diagnosticReport.id}`);
 

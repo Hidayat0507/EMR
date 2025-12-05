@@ -15,6 +15,7 @@ import type {
   Patient as FHIRPatient,
 } from '@medplum/fhirtypes';
 import { createProvenanceForResource } from './provenance-service';
+import { validateAndCreate } from './fhir-helpers';
 
 /**
  * Imaging modality codes (DICOM)
@@ -169,7 +170,7 @@ export async function createImagingOrder(order: ImagingOrderRequest): Promise<st
     const procedure = IMAGING_PROCEDURES[procedureCode];
     const modality = IMAGING_MODALITIES[procedure.modality as ModalityCode];
     
-    const serviceRequest = await medplum.createResource<ServiceRequest>({
+    const serviceRequest = await validateAndCreate<ServiceRequest>(medplum, {
       resourceType: 'ServiceRequest',
       status: 'active',
       intent: 'order',
@@ -252,7 +253,7 @@ export async function receiveImagingStudy(
   }
 
   // Create ImagingStudy resource
-  const imagingStudy = await medplum.createResource<ImagingStudy>({
+  const imagingStudy = await validateAndCreate<ImagingStudy>(medplum, {
     resourceType: 'ImagingStudy',
     status: 'available',
     subject: {
@@ -342,7 +343,7 @@ export async function createImagingReport(
   const imagingStudy = await medplum.readResource('ImagingStudy', imagingStudyId);
 
   // Create DiagnosticReport
-  const report = await medplum.createResource<DiagnosticReport>({
+  const report = await validateAndCreate<DiagnosticReport>(medplum, {
     resourceType: 'DiagnosticReport',
     status,
     category: [{
