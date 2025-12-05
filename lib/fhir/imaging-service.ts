@@ -195,9 +195,11 @@ export async function createImagingOrder(order: ImagingOrderRequest): Promise<st
         reference: `Encounter/${order.encounterId}`,
       } : undefined,
       authoredOn: new Date().toISOString(),
-      requester: order.orderedBy ? {
-        display: order.orderedBy,
-      } : undefined,
+      requester: order.orderedBy
+        ? order.orderedBy.startsWith('Practitioner/')
+          ? { reference: order.orderedBy }
+          : { display: order.orderedBy }
+        : undefined,
       reasonCode: order.clinicalIndication ? [{
         text: order.clinicalIndication,
       }] : undefined,

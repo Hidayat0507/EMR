@@ -126,9 +126,11 @@ export async function createLabOrder(order: LabOrderRequest): Promise<string> {
         reference: `Encounter/${order.encounterId}`,
       } : undefined,
       authoredOn: new Date().toISOString(),
-      requester: order.orderedBy ? {
-        display: order.orderedBy,
-      } : undefined,
+      requester: order.orderedBy
+        ? order.orderedBy.startsWith('Practitioner/')
+          ? { reference: order.orderedBy }
+          : { display: order.orderedBy }
+        : undefined,
       note: order.clinicalNotes ? [{
         text: order.clinicalNotes,
       }] : undefined,

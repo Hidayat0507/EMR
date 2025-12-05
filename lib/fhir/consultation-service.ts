@@ -17,6 +17,7 @@ import type {
 import { findDiagnosisByText } from './terminologies/diagnoses';
 import { findMedicationByName } from './terminologies/medications';
 import { validateFhirResource, logValidation } from './validation';
+import { createProvenanceForResource } from './provenance-service';
 
 // Local types that match your app's interface
 export interface ConsultationData {
@@ -34,6 +35,8 @@ export interface ConsultationData {
     strength?: string;
   }>;
   date?: Date;
+  practitionerId?: string; // FHIR Practitioner ID
+  organizationId?: string; // FHIR Organization ID
 }
 
 export interface SavedConsultation extends ConsultationData {
@@ -285,6 +288,24 @@ export async function saveConsultationToMedplum(
       encounter: { reference: `Encounter/${encounter.id}` },
       code,
       recordedDate: encounterDate,
+      clinicalStatus: {
+        coding: [
+          {
+            system: 'http://terminology.hl7.org/CodeSystem/condition-clinical',
+            code: 'active',
+            display: 'Active',
+          },
+        ],
+      },
+      verificationStatus: {
+        coding: [
+          {
+            system: 'http://terminology.hl7.org/CodeSystem/condition-ver-status',
+            code: 'confirmed',
+            display: 'Confirmed',
+          },
+        ],
+      },
     }, clinicId));
   }
 
@@ -367,6 +388,9 @@ export async function saveConsultationToMedplum(
         subject: { reference: patientReference },
         encounter: { reference: `Encounter/${encounter.id}` },
         medicationCodeableConcept,
+        requester: consultation.practitionerId
+          ? { reference: `Practitioner/${consultation.practitionerId}` }
+          : undefined,
         dosageInstruction: [
           {
             text: `${(rx as any).dosage || ''} ${rx.frequency || ''} for ${rx.duration || ''}`.trim(),
@@ -375,6 +399,20 @@ export async function saveConsultationToMedplum(
         authoredOn: encounterDate,
       }, clinicId));
     }
+  }
+
+  // Create Provenance for audit trail
+  try {
+    await createProvenanceForResource(
+      'Encounter',
+      encounter.id!,
+      consultation.practitionerId,
+      consultation.organizationId || clinicId,
+      'CREATE'
+    );
+    console.log(`✅ Created Provenance for consultation audit trail`);
+  } catch (error) {
+    console.warn(`⚠️  Failed to create Provenance (non-blocking):`, error);
   }
 
   console.log(`✅ Consultation saved to Medplum: ${encounter.id}`);
