@@ -17,6 +17,7 @@ import type {
 import { createProvenanceForResource } from './provenance-service';
 import { validateAndCreate } from './fhir-helpers';
 import { createResourcesInBundle } from './bundle-helpers';
+import { applyMyCoreProfile } from './mycore';
 
 /**
  * Lab test catalog (restricted to required panels)
@@ -284,10 +285,12 @@ export async function receiveLabResults(
   }
 
   // Update ServiceRequest status to completed
-  await medplum.updateResource({
-    ...serviceRequest,
-    status: 'completed',
-  });
+  await medplum.updateResource(
+    applyMyCoreProfile({
+      ...serviceRequest,
+      status: 'completed',
+    })
+  );
 
   return diagnosticReport.id!;
 }

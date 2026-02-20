@@ -22,11 +22,10 @@ import {
   Settings,
   TestTube,
   Users,
-  Clock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
-import { useAuth } from "@/lib/auth";
+import { useMedplumAuth } from "@/lib/auth-medplum";
 import { getEnabledModules } from "@/lib/modules";
 
 type SidebarModule = {
@@ -42,7 +41,6 @@ type SidebarProps = {
 
 const baseNavigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Check-in", href: "/check-in", icon: Clock },
   { name: "Patients", href: "/patients", icon: Users },
   { name: "Orders", href: "/orders", icon: ClipboardListIcon },
 ];
@@ -63,7 +61,7 @@ const moduleIconMap: Record<string, LucideIcon> = {
 export default function Sidebar({ modules = [] }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { profile, signOut } = useMedplumAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [enabledModules, setEnabledModules] = useState<Array<{ name: string; href: string; icon: LucideIcon }>>([]);
 
@@ -142,6 +140,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
                 <Link
                   key={item.name}
                   href={item.href}
+                  prefetch={true}
                   className={cn(
                     "flex items-center rounded-lg text-sm font-medium hover:bg-accent hover:text-accent-foreground",
                     isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground",
@@ -172,6 +171,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
               <Link
                 key={item.name}
                 href={item.href}
+                prefetch={true}
                 className={cn(
                   "flex items-center rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   isCollapsed ? "justify-center w-8 h-8 p-2 mx-auto" : "px-3 py-2"
@@ -182,7 +182,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
                 {!isCollapsed && <span className="ml-2">{item.name}</span>}
               </Link>
             ))}
-            {user ? (
+            {profile ? (
               <Button
                 variant="ghost"
                 className={cn(
@@ -190,7 +190,6 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
                   isCollapsed ? "justify-center w-8 h-8 p-2 mx-auto" : "justify-start px-3 py-2"
                 )}
                 onClick={async () => {
-                  try { await fetch('/api/auth/session', { method: 'DELETE' }); } catch {}
                   await signOut();
                   router.replace('/login');
                 }}
