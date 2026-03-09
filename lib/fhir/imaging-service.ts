@@ -16,6 +16,7 @@ import type {
 } from '@medplum/fhirtypes';
 import { createProvenanceForResource } from './provenance-service';
 import { validateAndCreate } from './fhir-helpers';
+import { applyMyCoreProfile } from './mycore';
 
 /**
  * Imaging modality codes (DICOM)
@@ -317,10 +318,12 @@ export async function receiveImagingStudy(
   }
 
   // Update ServiceRequest status
-  await medplum.updateResource({
-    ...serviceRequest,
-    status: 'completed',
-  });
+  await medplum.updateResource(
+    applyMyCoreProfile({
+      ...serviceRequest,
+      status: 'completed',
+    })
+  );
 
   return imagingStudy.id!;
 }

@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { ThemeProvider } from '@/components/theme-provider';
 import Toaster from '@/components/ui/toaster';
 import Sidebar from '@/components/sidebar';
-import { AuthProvider } from '@/lib/auth';
+import { MedplumAuthProvider } from '@/lib/auth-medplum';
 import { listActiveModules } from '@/lib/module-registry';
 
 export const metadata: Metadata = {
@@ -25,10 +25,11 @@ export default async function RootLayout({
           attribute="class"
           defaultTheme="system"
           enableSystem
+          themes={["light", "dark", "v3"]}
           disableTransitionOnChange
         >
-          <AuthProvider>
-            <div className="relative flex min-h-screen flex-col">
+          <MedplumAuthProvider>
+            <div className="app-shell relative flex min-h-screen flex-col">
               <div className="flex flex-1">
                 <Sidebar
                   modules={modules.map((module) => ({
@@ -38,15 +39,15 @@ export default async function RootLayout({
                     icon: module.icon,
                   }))}
                 />
-                <main className="flex-1 overflow-y-auto">
-                  <div className="container p-8">
+                <main className="app-main flex-1 overflow-y-auto">
+                  <div className="app-content container p-8">
                     {children}
                   </div>
                 </main>
               </div>
             </div>
             <Toaster />
-          </AuthProvider>
+          </MedplumAuthProvider>
         </ThemeProvider>
       </body>
     </html>

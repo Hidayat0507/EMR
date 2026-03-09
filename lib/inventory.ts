@@ -7,12 +7,10 @@ import {
   addDoc, 
   updateDoc,
   deleteDoc,
-  query,
-  where,
   Timestamp,
-  DocumentData 
+  DocumentData,
+  writeBatch 
 } from 'firebase/firestore';
-
 export interface Medication {
   id: string;
   name: string;
@@ -28,9 +26,9 @@ export interface Medication {
   updatedAt?: Date;
 }
 
-const MEDICATIONS = 'medications';
+export type NewMedicationInput = Omit<Medication, 'id' | 'createdAt' | 'updatedAt'>;
 
-// Helper function to convert Firestore data to our types
+const MEDICATIONS = 'medications';
 const convertTimestamps = (data: DocumentData) => {
   const result = { ...data };
   if (result.createdAt) {
@@ -44,13 +42,15 @@ const convertTimestamps = (data: DocumentData) => {
 
 export async function getMedications(): Promise<Medication[]> {
   try {
-    const snapshot = await getDocs(collection(db, MEDICATIONS));
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...convertTimestamps(doc.data())
+    const medsCollection = collection(db, MEDICATIONS);
+    const snapshot = await getDocs(medsCollection);
+
+    return snapshot.docs.map((docSnapshot) => ({
+      id: docSnapshot.id,
+      ...convertTimestamps(docSnapshot.data()),
     } as Medication));
   } catch (error) {
-    console.error('Error fetching medications:', error);
+    console.error('Failed to fetch medications from Firestore:', error);
     return [];
   }
 }
@@ -74,7 +74,7 @@ export async function getMedicationById(id: string): Promise<Medication | null> 
   }
 }
 
-export async function createMedication(data: Omit<Medication, 'id' | 'createdAt' | 'updatedAt'>): Promise<string | null> {
+export async function createMedication(data: NewMedicationInput): Promise<string | null> {
   try {
     const docRef = await addDoc(collection(db, MEDICATIONS), {
       ...data,
@@ -110,4 +110,37 @@ export async function deleteMedication(id: string): Promise<boolean> {
     console.error('Error deleting medication:', error);
     return false;
   }
+}
+
+export async function batchCreateMedications(items: NewMedicationInput[]): Promise<{ created: number; failed: number }> {
+  if (items.length === 0) {
+    return { created: 0, failed: 0 };
+  }
+
+  const BATCH_SIZE = 450;
+  let created = 0;
+  let failed = 0;
+
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    const slice = items.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+    slice.forEach((item) => {
+      const docRef = doc(collection(db, MEDICATIONS));
+      batch.set(docRef, {
+        ...item,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+    });
+
+    try {
+      await batch.commit();
+      created += slice.length;
+    } catch (error) {
+      failed += slice.length;
+      console.error('Error creating medication from batch:', error);
+    }
+  }
+
+  return { created, failed };
 }

@@ -8,12 +8,14 @@ import {
   getReferralFromMedplum,
   getPatientReferralsFromMedplum,
 } from '@/lib/fhir/referral-service';
+import { requireAuth } from '@/lib/server/medplum-auth';
 
 /**
  * POST - Create a new referral
  */
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const referralData = await request.json();
 
     // Validate required fields
@@ -48,6 +50,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const referralId = searchParams.get('id');
     const patientId = searchParams.get('patientId');
@@ -83,7 +86,6 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
 
 
 

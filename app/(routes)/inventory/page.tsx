@@ -23,6 +23,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { InventoryTable } from "@/components/inventory/inventory-table";
 import { AddMedicationForm } from "@/components/inventory/add-medication-form";
+import { BatchUploadMedications } from "@/components/inventory/batch-upload-dialog";
 import { getMedications, createMedication, updateMedication, deleteMedication, type Medication } from "@/lib/inventory";
 import ProceduresTable from "@/components/inventory/procedures-table";
 import { getProcedures, createProcedure, updateProcedure, deleteProcedure, type ProcedureItem } from "@/lib/procedures";
@@ -31,6 +32,7 @@ import { toast } from "@/components/ui/use-toast";
 export default function InventoryPage() {
   const [searchTerm, setSearchTerm] = React.useState("");
   const [showAddDialog, setShowAddDialog] = React.useState(false);
+  const [showBatchDialog, setShowBatchDialog] = React.useState(false);
   const [medications, setMedications] = React.useState<Medication[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -45,7 +47,8 @@ export default function InventoryPage() {
   async function loadMedications() {
     try {
       const data = await getMedications();
-      setMedications(data);
+      const sorted = [...data].sort((a, b) => a.name.localeCompare(b.name));
+      setMedications(sorted);
       setError(null);
     } catch (err) {
       setError('Failed to load medications');
@@ -125,6 +128,11 @@ export default function InventoryPage() {
     setSearchTerm(value);
   };
 
+  const handleBatchComplete = async () => {
+    await loadMedications();
+    setShowBatchDialog(false);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -201,7 +209,19 @@ export default function InventoryPage() {
           </div>
 
           {/* Inventory Table */}
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Dialog open={showBatchDialog} onOpenChange={setShowBatchDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline">Upload</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-3xl">
+                <DialogHeader>
+                  <DialogTitle>Upload</DialogTitle>
+                  <DialogDescription>CSV with preview before save.</DialogDescription>
+                </DialogHeader>
+                <BatchUploadMedications onComplete={handleBatchComplete} />
+              </DialogContent>
+            </Dialog>
             <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
               <DialogTrigger asChild>
                 <Button>

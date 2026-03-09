@@ -18,6 +18,29 @@ type Props = {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
+function formatDateTime(value?: Date | string | null) {
+  if (!value) return "N/A";
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "N/A";
+  return parsed.toLocaleString();
+}
+
+function formatConsultationNotes(raw?: string | null) {
+  if (!raw) return "";
+  const text = raw.trim();
+  if (!text) return "";
+
+  // If notes are saved in a structured block, show only the clinical note body
+  // because diagnosis/procedures are already displayed in dedicated sections.
+  const clinicalNotesMatch = text.match(/clinical\s*notes\s*:\s*([\s\S]*)$/i);
+  if (clinicalNotesMatch?.[1]) {
+    const clinicalOnly = clinicalNotesMatch[1].trim();
+    if (clinicalOnly) return clinicalOnly;
+  }
+
+  return text;
+}
+
 export default async function ConsultationDetails({ params }: Props) {
   // Directly await the params promise
   const { id } = await params; 
@@ -52,14 +75,18 @@ export default async function ConsultationDetails({ params }: Props) {
           <CardHeader>
             <CardTitle>Consultation Details</CardTitle>
             <CardDescription>
-              {consultation.date.toLocaleDateString()} - {consultation.doctor}
+              {consultation.date.toLocaleDateString()}
+              {consultation.doctor ? ` - ${consultation.doctor}` : ""}
+            </CardDescription>
+            <CardDescription>
+              Created: {formatDateTime(consultation.createdAt)} | Last Updated: {formatDateTime(consultation.updatedAt)}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4">
               <div>
                 <h3 className="font-medium mb-2">Chief Complaint</h3>
-                <p className="whitespace-pre-wrap">{consultation.chiefComplaint}</p>
+                <p className="whitespace-pre-wrap">{consultation.chiefComplaint || "Not documented"}</p>
               </div>
               <div>
                 <h3 className="font-medium mb-2">Diagnosis</h3>
@@ -68,20 +95,29 @@ export default async function ConsultationDetails({ params }: Props) {
               {consultation.procedures && consultation.procedures.length > 0 && (
                 <div>
                   <h3 className="font-medium mb-2">Procedures</h3>
-                  <ul className="list-disc list-inside">
+                  <div className="space-y-2">
                     {consultation.procedures.map((procedure, index) => (
-                      <li key={index}>
-                        {procedure.name}
-                        {procedure.price && ` - $${procedure.price.toFixed(2)}`}
-                      </li>
+                      <div key={index} className="rounded-md border p-2">
+                        <div>
+                          {procedure.name}
+                          {typeof procedure.price === "number" && procedure.price > 0
+                            ? ` - $${procedure.price.toFixed(2)}`
+                            : ""}
+                        </div>
+                        {procedure.notes && (
+                          <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                            Notes: {procedure.notes}
+                          </p>
+                        )}
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
-              {consultation.notes && (
+              {formatConsultationNotes(consultation.notes) && (
                 <div>
-                  <h3 className="font-medium mb-2">Additional Procedures / Notes</h3>
-                  <p className="whitespace-pre-wrap">{consultation.notes}</p>
+                  <h3 className="font-medium mb-2">Consultation Notes</h3>
+                  <p className="whitespace-pre-wrap">{formatConsultationNotes(consultation.notes)}</p>
                 </div>
               )}
               {consultation.prescriptions && consultation.prescriptions.length > 0 && (

@@ -1,6 +1,8 @@
 import { TriageData, VitalSigns, QueueStatus } from '../types';
+import type { Encounter } from '@medplum/fhirtypes';
 import { getMedplumClient, getPatientFromMedplum, SavedPatient } from './patient-service';
 import { validateFhirResource, logValidation } from './validation';
+import { applyMyCoreProfile, MY_CORE_IDENTIFIERS } from './mycore';
 
 const TRIAGE_ENCOUNTER_EXTENSION_URL = 'https://ucc.emr/triage-encounter';
 
@@ -40,7 +42,7 @@ function queueStatusFromEncounter(encounterStatus?: string): QueueStatus {
   }
 }
 
-function encounterStatusFromQueue(status: QueueStatus | null): string | undefined {
+function encounterStatusFromQueue(status: QueueStatus | null): Encounter['status'] | undefined {
   switch (status) {
     case 'arrived':
       return 'arrived';
@@ -116,12 +118,13 @@ function buildQueueOnlyExtension(queueStatus: QueueStatus, queueAddedAtIso: stri
 }
 
 function validateAndCreate<T extends { resourceType: string }>(medplum: any, resource: T) {
-  const validation = validateFhirResource(resource);
+  const profiledResource = applyMyCoreProfile(resource as any) as T;
+  const validation = validateFhirResource(profiledResource);
   logValidation(resource.resourceType, validation);
   if (!validation.valid) {
     throw new Error(`Invalid ${resource.resourceType}: ${validation.errors.join(', ')}`);
   }
-  return medplum.createResource(resource);
+  return medplum.createResource(profiledResource);
 }
 
 function parseTriageExtension(extensions?: Extension[]): TriageSummary {
@@ -236,6 +239,12 @@ export async function saveTriageEncounter(patientId: string, triageData: Omit<Tr
       code: 'AMB',
       display: 'ambulatory',
     },
+    identifier: [
+      {
+        system: MY_CORE_IDENTIFIERS.ENCOUNTER_ID,
+        value: `${patientId}-triage-${Date.now()}`,
+      },
+    ],
     subject: { reference: `Patient/${patientId}` },
     period: { start: triageAtIso },
     priority: {
@@ -310,10 +319,12 @@ export async function updateTriageEncounter(
 
   const otherExtensions = (encounter as any).extension?.filter((ext: any) => ext.url !== TRIAGE_ENCOUNTER_EXTENSION_URL) || [];
 
-  await medplum.updateResource({
-    ...(encounter as any),
-    extension: [...otherExtensions, triageExt],
-  });
+  await medplum.updateResource(
+    applyMyCoreProfile({
+      ...(encounter as any),
+      extension: [...otherExtensions, triageExt],
+    })
+  );
 }
 
 export async function updateQueueStatusForPatient(patientId: string, status: QueueStatus | null): Promise<void> {
@@ -328,7 +339,7 @@ export async function updateQueueStatusForPatient(patientId: string, status: Que
     throw new Error('No active triage encounter found');
   }
 
-  const encounter = await medplum.readResource<any>('Encounter', existing.id);
+  const encounter = (await medplum.readResource('Encounter', existing.id)) as Encounter;
   const newStatus = encounterStatusFromQueue(status);
   if (!newStatus) {
     // If clearing status, mark encounter finished and drop queue extension fields
@@ -381,10 +392,12 @@ export async function updateQueueStatusForPatient(patientId: string, status: Que
     newExtensions.push(triageExt);
   }
 
-  await medplum.updateResource({
-    ...encounter,
-    extension: newExtensions,
-  });
+  await medplum.updateResource(
+    applyMyCoreProfile({
+      ...encounter,
+      extension: newExtensions,
+    })
+  );
 }
 
 export async function getActiveTriageEncounter(
@@ -438,9 +451,10 @@ export async function getTriageQueueForToday(limit = 200): Promise<SavedPatient[
   const endIso = end.toISOString();
   const query = `status=arrived,triaged,in-progress,finished&date=ge${startIso}&date=lt${endIso}&_count=${limit}&_sort=date`;
 
-  const encounters = await medplum.searchResources<any>('Encounter', query);
+  const encounters = (await medplum.searchResources('Encounter', query)) as Encounter[];
 
-  const patients: SavedPatient[] = [];
+  // Use Map to deduplicate patients by ID, keeping the most recent encounter data
+  const patientsMap = new Map<string, SavedPatient>();
 
   for (const encounter of encounters) {
     const subjectRef: string = encounter.subject?.reference || '';
@@ -451,16 +465,32 @@ export async function getTriageQueueForToday(limit = 200): Promise<SavedPatient[
     if (!patient) continue;
 
     const parsed = parseTriageExtension(encounter.extension);
-    const queueAddedAtIso = (parsed.queueAddedAt ?? encounter.period?.start ?? null)
-      ? new Date(parsed.queueAddedAt ?? encounter.period?.start).toISOString()
-      : null;
-    patients.push({
+  const queueAddedAtSource = parsed.queueAddedAt ?? encounter.period?.start;
+  const queueAddedAtIso = queueAddedAtSource
+    ? new Date(queueAddedAtSource).toISOString()
+    : null;
+    
+    const patientData: SavedPatient = {
       ...patient,
       triage: parsed.triage,
       queueStatus: parsed.queueStatus ?? queueStatusFromEncounter(encounter.status),
       queueAddedAt: queueAddedAtIso,
-    });
+    };
+
+    // If patient already exists, keep the one with the most recent queueAddedAt time
+    const existing = patientsMap.get(patientId);
+    if (!existing) {
+      patientsMap.set(patientId, patientData);
+    } else {
+      const existingTime = existing.queueAddedAt ? new Date(existing.queueAddedAt).getTime() : 0;
+      const newTime = queueAddedAtIso ? new Date(queueAddedAtIso).getTime() : 0;
+      if (newTime > existingTime) {
+        patientsMap.set(patientId, patientData);
+      }
+    }
   }
+
+  const patients = Array.from(patientsMap.values());
 
   return patients
     .filter((p) => p.queueStatus)

@@ -1,3 +1,11 @@
+if (!process.env.BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA) {
+  process.env.BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA = "true";
+}
+
+if (!process.env.BROWSERSLIST_IGNORE_OLD_DATA) {
+  process.env.BROWSERSLIST_IGNORE_OLD_DATA = "true";
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {

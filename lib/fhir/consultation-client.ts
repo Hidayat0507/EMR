@@ -5,10 +5,18 @@
 
 export interface ConsultationInput {
   patientId: string;
-  chiefComplaint: string;
   diagnosis: string;
-  procedures?: Array<{ name: string; price?: number }>;
+  procedures?: Array<{
+    name: string;
+    price?: number;
+    notes?: string;
+    procedureId?: string;
+    codingSystem?: string;
+    codingCode?: string;
+    codingDisplay?: string;
+  }>;
   notes?: string;
+  chiefComplaint?: string;
   progressNote?: string;
   prescriptions?: Array<{
     medication: { id: string; name: string };
@@ -23,6 +31,7 @@ export interface Consultation extends ConsultationInput {
   patientName?: string;
   date: Date;
   createdAt: Date;
+  updatedAt?: Date;
   progressNote?: string;
 }
 
@@ -49,6 +58,29 @@ export async function saveConsultation(consultation: ConsultationInput, clinicId
 }
 
 /**
+ * Update an existing consultation encounter and related resources
+ */
+export async function updateConsultation(
+  consultationId: string,
+  updates: Partial<ConsultationInput>,
+  clinicId?: string
+): Promise<void> {
+  const response = await fetch('/api/consultations', {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(clinicId ? { 'X-Clinic-Id': clinicId } : {}),
+    },
+    body: JSON.stringify({ consultationId, updates }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Failed to update consultation');
+  }
+}
+
+/**
  * Get consultations for a patient from Medplum
  */
 export async function getPatientConsultations(patientId: string, clinicId?: string): Promise<Consultation[]> {
@@ -66,6 +98,7 @@ export async function getPatientConsultations(patientId: string, clinicId?: stri
     ...c,
     date: new Date(c.date),
     createdAt: new Date(c.createdAt),
+    updatedAt: c.updatedAt ? new Date(c.updatedAt) : undefined,
   }));
 }
 
@@ -88,6 +121,7 @@ export async function getConsultation(consultationId: string, clinicId?: string)
     ...consultation,
     date: new Date(consultation.date),
     createdAt: new Date(consultation.createdAt),
+    updatedAt: consultation.updatedAt ? new Date(consultation.updatedAt) : undefined,
   };
 }
 
@@ -108,9 +142,9 @@ export async function getRecentConsultations(limit = 10, clinicId?: string): Pro
     ...c,
     date: new Date(c.date),
     createdAt: new Date(c.createdAt),
+    updatedAt: c.updatedAt ? new Date(c.updatedAt) : undefined,
   }));
 }
-
 
 
 

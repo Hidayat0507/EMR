@@ -7,7 +7,6 @@ import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { ArrowLeft, Mic } from "lucide-react";
 import { Prescription, ProcedureRecord } from "@/lib/models";
-import { updateQueueStatus } from "@/lib/actions";
 import { safeToISOString } from "@/lib/utils";
 import { OrderComposer } from "@/components/orders/order-composer";
 import { PatientCard, SerializedPatient } from "@/components/patients/patient-card";
@@ -48,13 +47,13 @@ export default function ConsultationForm({
   } | null>(null);
   
   // Form state
-  const [clinicalNotes, setClinicalNotes] = useState(initialConsultation?.chiefComplaint ?? "");
+  const [clinicalNotes, setClinicalNotes] = useState(
+    initialConsultation?.notes ?? initialConsultation?.chiefComplaint ?? ""
+  );
   const [diagnosis, setDiagnosis] = useState(initialConsultation?.diagnosis ?? "");
-  const [progressNote, setProgressNote] = useState(initialConsultation?.progressNote ?? "");
   const [procedureEntries, setProcedureEntries] = useState<ProcedureRecord[]>(
     initialConsultation?.procedures ? [...initialConsultation.procedures] : []
   );
-  const [additionalNotes, setAdditionalNotes] = useState(initialConsultation?.notes ?? "");
   const [prescriptions, setPrescriptions] = useState<Prescription[]>(
     initialConsultation?.prescriptions ? [...initialConsultation.prescriptions] : []
   );
@@ -64,6 +63,13 @@ export default function ConsultationForm({
 
   const { toast } = useToast();
   const router = useRouter();
+
+  const formatDateTime = (value?: string | Date | null) => {
+    if (!value) return "N/A";
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "N/A";
+    return parsed.toLocaleString();
+  };
 
   useEffect(() => {
     // If we already have initial patient for this id, skip fetching
@@ -185,18 +191,6 @@ export default function ConsultationForm({
     },
     [smartTextState]
   );
-
-  const toggleLab = useCallback((code: LabTestCode) => {
-    setLabSelections((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
-  }, []);
-
-  const toggleImaging = useCallback((code: ImagingProcedureCode) => {
-    setImagingSelections((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
-  }, []);
 
   const handleSmartTextKeyDown = useCallback(
     (field: string, setter: (value: string) => void) =>
@@ -330,7 +324,7 @@ export default function ConsultationForm({
     if (!clinicalNotes.trim() || !diagnosis.trim()) {
       toast({
         title: "Validation Error",
-        description: "Please fill in Chief Complaint and Diagnosis",
+        description: "Please fill in SOAP note and Diagnosis",
         variant: "destructive"
       });
       return;
@@ -340,22 +334,20 @@ export default function ConsultationForm({
       setSubmitting(true);
       const consultationData = {
         patientId,
-        chiefComplaint: clinicalNotes,
         diagnosis,
         procedures: procedureEntries, // From order composer
-        notes: additionalNotes,
-        progressNote,
+        notes: clinicalNotes,
         prescriptions: prescriptions // Assuming prescriptions state already holds objects with price?
       };
 
       if (isEditMode && initialConsultation?.id) {
-        // Note: In FHIR, Encounters are typically immutable
-        // Best practice is to create amendment Observations rather than updating
+        const { updateConsultation } = await import('@/lib/fhir/consultation-client');
+        await updateConsultation(initialConsultation.id, consultationData);
         toast({
-          title: "Edit Mode",
-          description: "FHIR Encounters are immutable. Please create a new consultation for changes.",
-          variant: "destructive",
+          title: "Consultation Updated",
+          description: "Consultation changes have been saved.",
         });
+        router.push(`/consultations/${initialConsultation.id}`);
         return;
       }
 
@@ -375,7 +367,7 @@ export default function ConsultationForm({
               encounterId: newConsultationId,
               tests: labSelections,
               priority: 'routine',
-              clinicalNotes: additionalNotes || clinicalNotes,
+              clinicalNotes: clinicalNotes,
             }),
           });
           if (!res.ok) {
@@ -399,7 +391,7 @@ export default function ConsultationForm({
               procedures: imagingSelections,
               priority: 'routine',
               clinicalIndication: diagnosis || clinicalNotes,
-              clinicalQuestion: additionalNotes || undefined,
+              clinicalQuestion: undefined,
               orderedBy: undefined,
             }),
           });
@@ -419,17 +411,55 @@ export default function ConsultationForm({
 
       console.log(`✅ Consultation saved to Medplum FHIR: ${newConsultationId}`);
 
-      // Update queue status AFTER successful consultation save
-      await updateQueueStatus(patientId, "meds_and_bills");
+      try {
+        const billingRes = await fetch('/api/billing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            encounterId: newConsultationId,
+            patientId,
+            procedures: consultationData.procedures ?? [],
+            prescriptions: consultationData.prescriptions ?? [],
+          }),
+        });
+        if (!billingRes.ok) {
+          const data = await billingRes.json().catch(() => ({}));
+          throw new Error(data.error || 'Billing invoice creation failed');
+        }
+      } catch (err) {
+        console.error('Billing invoice error:', err);
+        orderErrors.push('billing');
+      }
+
+      let queueUpdateFailed = false;
+      try {
+        // Update queue status through server API to avoid client-side Medplum credential usage.
+        const queueRes = await fetch('/api/queue', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            patientId,
+            status: 'meds_and_bills',
+          }),
+        });
+        if (!queueRes.ok) {
+          const queueData = await queueRes.json().catch(() => ({}));
+          throw new Error(queueData.error || 'Failed to update queue status');
+        }
+      } catch (queueError) {
+        queueUpdateFailed = true;
+        console.error('Queue status update failed:', queueError);
+      }
 
       const orderMessage = orderErrors.length
         ? `Consultation saved. Orders with issues: ${orderErrors.join(', ')}.`
         : "Consultation has been successfully recorded to FHIR and orders placed.";
+      const queueMessage = queueUpdateFailed ? " Queue status update failed." : "";
 
       toast({
         title: "Consultation Saved",
-        description: orderMessage,
-        variant: orderErrors.length ? "destructive" : "default",
+        description: `${orderMessage}${queueMessage}`,
+        variant: orderErrors.length || queueUpdateFailed ? "destructive" : "default",
       });
 
       router.push(`/patients/${patientId}`);
@@ -475,6 +505,11 @@ export default function ConsultationForm({
             ? "Update the consultation notes and orders below."
             : "Record the patient's consultation details below."}
         </p>
+        {isEditMode && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Created: {formatDateTime(initialConsultation?.createdAt)} | Last Updated: {formatDateTime(initialConsultation?.updatedAt)}
+          </p>
+        )}
       </div>
 
       {/* Consultation Form */}
@@ -543,12 +578,12 @@ export default function ConsultationForm({
             </Card>
           </div>
 
-          {/* Middle: Chief Complaint & Diagnosis (largest column) */}
+          {/* Middle: SOAP Note & Diagnosis (largest column) */}
           <div className="md:col-span-6 space-y-3">
             <div className="space-y-1">
               <Textarea
-                placeholder="Clinical notes"
-                className="min-h-[200px]"
+                placeholder="SOAP note (Subjective, Objective, Assessment, Plan)"
+                className="min-h-[260px]"
                 value={clinicalNotes}
                 onChange={(e) => setClinicalNotes(e.target.value)}
                 onKeyDown={handleSmartTextKeyDown("clinicalNotes", setClinicalNotes)}
@@ -571,7 +606,7 @@ export default function ConsultationForm({
                 </Button>
               ) : null}
               <ReferralLetterButton
-                sourceText={[clinicalNotes, diagnosis, additionalNotes].filter(Boolean).join("\n\n")}
+                sourceText={[clinicalNotes, diagnosis].filter(Boolean).join("\n\n")}
                 patient={patient}
               />
             </div>
@@ -581,71 +616,23 @@ export default function ConsultationForm({
               value={diagnosis}
               onChange={(e) => setDiagnosis(e.target.value)}
             />
-            <div className="space-y-1">
-              <Textarea
-                placeholder="Progress note"
-                className="min-h-[120px]"
-                value={progressNote}
-                onChange={(e) => setProgressNote(e.target.value)}
-                onKeyDown={handleSmartTextKeyDown("progressNote", setProgressNote)}
-              />
-              {smartTextMessage("progressNote")}
-            </div>
-            <div className="space-y-1">
-              <Textarea
-                placeholder="Additional notes"
-                className="min-h-[160px]"
-                value={additionalNotes}
-                onChange={(e) => setAdditionalNotes(e.target.value)}
-                onKeyDown={handleSmartTextKeyDown("additionalNotes", setAdditionalNotes)}
-              />
-              {smartTextMessage("additionalNotes")}
-            </div>
           </div>
 
           {/* Right: Orders (Meds + Procedures) */}
           <div className="md:col-span-3 space-y-2 sticky top-2 self-start">
             <OrderComposer
               procedureOptions={procedureOptions}
+              labOptions={labOptions.map((l) => ({ code: l.code, label: l.label }))}
+              imagingOptions={imagingOptions.map((i) => ({ code: i.code, label: i.label }))}
               initialPrescriptions={prescriptions}
               initialProcedures={procedureEntries}
+              initialLabSelections={labSelections}
+              initialImagingSelections={imagingSelections}
               onPrescriptionsChange={setPrescriptions}
               onProceduresChange={setProcedureEntries}
+              onLabsChange={(labs) => setLabSelections(labs as LabTestCode[])}
+              onImagingChange={(imaging) => setImagingSelections(imaging as ImagingProcedureCode[])}
             />
-            <div className="border rounded-md p-3 space-y-3">
-              <div>
-                <p className="text-sm font-semibold">Lab Orders (FHIR ServiceRequest)</p>
-                <div className="space-y-1 max-h-36 overflow-auto pr-1">
-                  {labOptions.map((lab) => (
-                    <label key={lab.code} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={labSelections.includes(lab.code)}
-                        onChange={() => toggleLab(lab.code)}
-                      />
-                      <span>{lab.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Imaging Orders (PACS)</p>
-                <div className="space-y-1 max-h-36 overflow-auto pr-1">
-                  {imagingOptions.map((img) => (
-                    <label key={img.code} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={imagingSelections.includes(img.code)}
-                        onChange={() => toggleImaging(img.code)}
-                      />
-                      <span>{img.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 

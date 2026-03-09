@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkInPatient } from '@/lib/models';
+import { requireAuth } from '@/lib/server/medplum-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { patientId, chiefComplaint } = await request.json();
 
     if (!patientId) {

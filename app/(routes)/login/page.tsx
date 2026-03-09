@@ -1,20 +1,39 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@/lib/auth";
-import { useRouter } from "next/navigation";
+import { useMedplumAuth } from "@/lib/auth-medplum";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+function resolveSafeNext(next: string | null): string {
+  if (!next) return "/dashboard";
+  if (next.startsWith("/")) return next;
+
+  try {
+    const candidate = new URL(next);
+    const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN;
+    if (!baseDomain) return "/dashboard";
+    const hostname = candidate.hostname;
+    if (hostname === baseDomain || hostname.endsWith(`.${baseDomain}`)) {
+      return candidate.toString();
+    }
+    return "/dashboard";
+  } catch {
+    return "/dashboard";
+  }
+}
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn, resetPassword } = useAuth();
+  const { signIn } = useMedplumAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -23,40 +42,17 @@ export default function Login() {
 
     try {
       await signIn(email, password);
-      // After client sign-in, exchange ID token for a secure session cookie
-      const user = (await import('firebase/auth')).getAuth().currentUser;
-      const idToken = user ? await user.getIdToken() : null;
-      if (idToken) {
-        const res = await fetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken }),
-        });
-        if (!res.ok) throw new Error('Session creation failed');
-      }
       // Replace to avoid back navigation to login
-      router.replace("/dashboard");
-    } catch (error) {
+      const safeNext = resolveSafeNext(searchParams.get('next'));
+      router.replace(safeNext);
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Invalid credentials. Please try again.",
+        description: error?.message || "Invalid credentials. Please try again.",
         variant: "destructive",
       });
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleReset = async () => {
-    if (!email) {
-      toast({ title: 'Enter your email', description: 'Provide your account email to receive reset link.' });
-      return;
-    }
-    try {
-      await resetPassword(email);
-      toast({ title: 'Email sent', description: 'Check your inbox for the reset link.' });
-    } catch (e) {
-      toast({ title: 'Error', description: 'Could not send reset email.', variant: 'destructive' });
     }
   };
 
@@ -93,8 +89,8 @@ export default function Login() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign in"}
             </Button>
-            <Button type="button" variant="ghost" className="w-full" onClick={handleReset} disabled={isLoading}>
-              Forgot password?
+            <Button type="button" variant="ghost" className="w-full" disabled>
+              Forgot password? (not available)
             </Button>
           </form>
           {/* Signup disabled */}

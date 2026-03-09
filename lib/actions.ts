@@ -78,6 +78,10 @@ export async function updateQueueStatus(patientId: string, status: QueueStatus) 
       throw new Error('Patient not found');
     }
     if (!triage.triage) {
+      // Not all consultation flows originate from triage. Treat as no-op for final queue states.
+      if (status === 'meds_and_bills' || status === 'completed') {
+        return;
+      }
       throw new Error('Patient has no triage encounter');
     }
     await updateQueueStatusForPatient(patientId, status);

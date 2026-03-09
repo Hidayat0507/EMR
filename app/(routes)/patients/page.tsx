@@ -44,41 +44,49 @@ export default function PatientsPage() {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    async function loadPatients() {
-      setLoading(true);
-      setError(null);
-      try {
-        // 🎯 LOAD FROM MEDPLUM (FHIR) - Source of Truth
-        const data = await getAllPatients(200);
-        console.log(`✅ Loaded ${data.length} patients from Medplum FHIR`);
-        
-        setPatients(data as any);
-        
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
-        
-        setStats({
-          total: data.length,
-          new: data.filter((p) => {
-            const createdAt = p.createdAt ? new Date(p.createdAt) : null;
-            return createdAt && createdAt >= monthStart;
-          }).length,
-          followUps: data.filter((p) => {
-            const lastVisit = (p as any).lastVisit ? new Date((p as any).lastVisit) : null;
-            return lastVisit && lastVisit >= weekStart;
-          }).length,
-          inQueue: data.filter((p) => ['arrived', 'waiting', 'in_consultation'].includes((p as any).queueStatus)).length
-        });
-      } catch (err) {
-        console.error('Error loading patients from Medplum:', err);
-        setError('Failed to load patient data from FHIR.');
-      } finally {
-        setLoading(false);
-      }
-    }
+  const loadPatients = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAllPatients(200);
+      setPatients(data as any);
 
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
+
+      setStats({
+        total: data.length,
+        new: data.filter((p) => {
+          const createdAt = p.createdAt ? new Date(p.createdAt) : null;
+          return createdAt && createdAt >= monthStart;
+        }).length,
+        followUps: data.filter((p) => {
+          const lastVisit = (p as any).lastVisit ? new Date((p as any).lastVisit) : null;
+          return lastVisit && lastVisit >= weekStart;
+        }).length,
+        inQueue: data.filter((p) => ['arrived', 'waiting', 'in_consultation'].includes((p as any).queueStatus)).length
+      });
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to load patient data from FHIR';
+      if (errorMessage.includes('clinicId') || errorMessage.includes('Missing clinicId')) {
+        setError('Clinic ID not found. Please ensure you are accessing the application via a clinic subdomain.');
+      } else if (errorMessage.includes('credentials') || errorMessage.includes('Unauthorized')) {
+        setError('Authentication failed. Please check your Medplum configuration.');
+      } else {
+        setError(`Failed to load patient data: ${errorMessage}`);
+      }
+      toast({
+        title: 'Error Loading Patients',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadPatients();
   }, []);
 
@@ -97,8 +105,7 @@ export default function PatientsPage() {
         title: "Checked in",
         description: `${patient.fullName} has been marked as arrived.`,
       });
-      // Refresh the page to update the queue status
-      window.location.reload();
+      await loadPatients();
     } catch (error) {
       console.error('Error checking in:', error);
       toast({
@@ -124,8 +131,7 @@ export default function PatientsPage() {
         title: "Removed from Queue",
         description: `${patient.fullName} has been removed from the queue.`,
       });
-      // Refresh the page to update the queue status
-      window.location.reload();
+      await loadPatients();
     } catch (error) {
       console.error('Error removing from queue:', error);
       toast({

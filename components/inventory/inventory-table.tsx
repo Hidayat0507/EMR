@@ -22,6 +22,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EditMedicationForm } from "./edit-medication-form";
+import { Badge } from "@/components/ui/badge";
 
 interface InventoryTableProps {
   medications: Medication[];
@@ -41,20 +42,29 @@ export function InventoryTable({
   const [editingMedication, setEditingMedication] = React.useState<Medication | null>(null);
   const [deletingMedication, setDeletingMedication] = React.useState<Medication | null>(null);
 
-  const filteredMedications = medications.filter(
-    (med) =>
-      med.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      med.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const normalizedTerm = searchTerm.toLowerCase();
+  const filteredMedications = medications.filter((med) => {
+    if (!normalizedTerm) return true;
+    const haystack = [
+      med.name,
+      med.category,
+      med.dosageForm,
+      med.strengths?.join(" "),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedTerm);
+  });
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center space-x-2">
         <Search className="w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search medications..."
+          placeholder="Search medications by name, category, or strength..."
           value={searchTerm}
-          onChange={(e) => onSearchChange(e.target.value.trim())}
+          onChange={(e) => onSearchChange(e.target.value)}
           className="max-w-sm"
         />
       </div>
@@ -65,6 +75,7 @@ export function InventoryTable({
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Form & Strengths</TableHead>
               <TableHead>Stock</TableHead>
               <TableHead>Min. Stock</TableHead>
               <TableHead>Unit Price</TableHead>
@@ -73,40 +84,63 @@ export function InventoryTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredMedications.map((medication) => (
-              <TableRow key={medication.id}>
-                <TableCell>
-                  <div>
-                    <p className="font-medium">{medication.name}</p>
-                  </div>
-                </TableCell>
-                <TableCell>{medication.category}</TableCell>
-                <TableCell className={medication.stock <= medication.minimumStock ? "text-red-500 font-medium" : ""}>
-                  {medication.stock} {medication.unit}
-                </TableCell>
-                <TableCell>{medication.minimumStock}</TableCell>
-                <TableCell>${medication.unitPrice?.toFixed(2) || "N/A"}</TableCell>
-                <TableCell>{medication.expiryDate}</TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setEditingMedication(medication)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeletingMedication(medication)}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
+            {filteredMedications.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                  No medications match your filters yet.
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              filteredMedications.map((medication) => (
+                <TableRow key={medication.id}>
+                  <TableCell>
+                    <div>
+                      <p className="font-medium">{medication.name}</p>
+                      {medication.unitPrice && (
+                        <p className="text-xs text-muted-foreground">SKU · {medication.unit}</p>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>{medication.category}</TableCell>
+                  <TableCell>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">{medication.dosageForm}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {(medication.strengths ?? []).map((strength) => (
+                          <Badge key={strength} variant="outline">
+                            {strength}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className={medication.stock <= medication.minimumStock ? "text-red-500 font-medium" : ""}>
+                    {medication.stock} {medication.unit}
+                  </TableCell>
+                  <TableCell>{medication.minimumStock}</TableCell>
+                  <TableCell>${medication.unitPrice?.toFixed(2) || "N/A"}</TableCell>
+                  <TableCell>{medication.expiryDate}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEditingMedication(medication)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeletingMedication(medication)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>

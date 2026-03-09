@@ -9,27 +9,44 @@ import {
   getConsultationFromMedplum,
   getPatientConsultationsFromMedplum,
   getRecentConsultationsFromMedplum,
+  updateConsultationInMedplum,
 } from '@/lib/fhir/consultation-service';
 import { getPatientFromMedplum } from '@/lib/fhir/patient-service';
 import { getClinicIdFromRequest } from '@/lib/server/clinic';
+import { getCurrentProfile, requireAuth } from '@/lib/server/medplum-auth';
 
 /**
  * POST - Create a new consultation in Medplum
  */
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const body = await request.json();
     const { patientId, chiefComplaint, diagnosis, procedures, notes, progressNote, prescriptions } = body;
-    const clinicId = await getClinicIdFromRequest(request);
+    let clinicId = await getClinicIdFromRequest(request);
+
+    // For development/localhost, use default clinic ID if not provided
+    if (!clinicId && process.env.NODE_ENV !== 'production') {
+      clinicId = process.env.NEXT_PUBLIC_DEFAULT_CLINIC_ID || 'default';
+      console.warn('⚠️  No clinicId found, using default for development:', clinicId);
+    }
 
     if (!clinicId) {
-      return NextResponse.json({ error: 'Missing clinicId' }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Missing clinicId. Please set NEXT_PUBLIC_DEFAULT_CLINIC_ID for development or access via clinic subdomain.',
+        },
+        { status: 400 }
+      );
     }
 
     // Validate required fields
-    if (!patientId || !chiefComplaint || !diagnosis) {
+    const soapNote = notes || chiefComplaint;
+    if (!patientId || !soapNote || !diagnosis) {
       return NextResponse.json(
-        { error: 'Missing required fields: patientId, chiefComplaint, diagnosis' },
+        { error: 'Missing required fields: patientId, SOAP note, diagnosis' },
         { status: 400 }
       );
     }
@@ -40,6 +57,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Patient not found in FHIR' }, { status: 404 });
     }
 
+    // Resolve practitioner ID from the authenticated user's profile
+    let practitionerId: string | undefined;
+    try {
+      const profile = await getCurrentProfile(request);
+      if (profile.resourceType === 'Practitioner' && profile.id) {
+        practitionerId = profile.id;
+      }
+    } catch {
+      // Non-blocking: consultation can still be saved without practitioner
+    }
+
     // Save to Medplum as FHIR
     const encounterId = await saveConsultationToMedplum(
       {
@@ -47,9 +75,10 @@ export async function POST(request: NextRequest) {
         chiefComplaint,
         diagnosis,
         procedures,
-        notes,
+        notes: soapNote,
         progressNote,
         prescriptions,
+        practitionerId,
         date: new Date(),
       },
       {
@@ -92,14 +121,28 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const patientId = searchParams.get('patientId');
     const consultationId = searchParams.get('id');
     const recent = searchParams.get('recent');
-    const clinicId = await getClinicIdFromRequest(request);
+    let clinicId = await getClinicIdFromRequest(request);
+
+    // For development/localhost, use default clinic ID if not provided
+    if (!clinicId && process.env.NODE_ENV !== 'production') {
+      clinicId = process.env.NEXT_PUBLIC_DEFAULT_CLINIC_ID || 'default';
+      console.warn('⚠️  No clinicId found, using default for development:', clinicId);
+    }
 
     if (!clinicId) {
-      return NextResponse.json({ error: 'Missing clinicId' }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Missing clinicId. Please set NEXT_PUBLIC_DEFAULT_CLINIC_ID for development or access via clinic subdomain.',
+        },
+        { status: 400 }
+      );
     }
 
     // Get specific consultation
@@ -151,21 +194,26 @@ export async function GET(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { consultationId, updates } = await request.json();
+    let clinicId = await getClinicIdFromRequest(request);
 
-    if (!consultationId) {
-      return NextResponse.json({ error: 'Missing consultationId' }, { status: 400 });
+    if (!clinicId && process.env.NODE_ENV !== 'production') {
+      clinicId = process.env.NEXT_PUBLIC_DEFAULT_CLINIC_ID || 'default';
     }
 
-    // For now, we'll create amendment observations rather than updating the encounter
-    // This is more FHIR-compliant (maintaining audit trail)
-    console.log('⚠️  Consultation updates should be handled via amendments in FHIR');
-    console.log('Consider creating new Observation resources for amendments');
+    if (!consultationId || !updates) {
+      return NextResponse.json({ error: 'Missing consultationId or updates' }, { status: 400 });
+    }
+
+    const updated = await updateConsultationInMedplum(consultationId, updates, clinicId || undefined);
+    if (!updated) {
+      return NextResponse.json({ success: false, error: 'Consultation not found' }, { status: 404 });
+    }
 
     return NextResponse.json({
       success: true,
-      message: 'Consultation amendment recorded',
-      note: 'FHIR encounters are typically immutable; amendments recorded as new Observations',
+      message: 'Consultation updated successfully',
     });
   } catch (error: any) {
     console.error('❌ Failed to update consultation:', error);

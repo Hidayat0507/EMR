@@ -22,11 +22,10 @@ import {
   Settings,
   TestTube,
   Users,
-  Clock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
-import { useAuth } from "@/lib/auth";
+import { useMedplumAuth } from "@/lib/auth-medplum";
 import { getEnabledModules } from "@/lib/modules";
 
 type SidebarModule = {
@@ -42,7 +41,6 @@ type SidebarProps = {
 
 const baseNavigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Check-in", href: "/check-in", icon: Clock },
   { name: "Patients", href: "/patients", icon: Users },
   { name: "Orders", href: "/orders", icon: ClipboardListIcon },
 ];
@@ -60,10 +58,26 @@ const moduleIconMap: Record<string, LucideIcon> = {
   BarChart,
 };
 
+function normalizeModuleLabel(name: string): string {
+  if (name.toLowerCase().startsWith("analytics")) {
+    return "Analytics";
+  }
+  if (name.toLowerCase().startsWith("inventory")) {
+    return "Inventory";
+  }
+  if (name.toLowerCase().includes("point of care") || name.toLowerCase().startsWith("poct")) {
+    return "Labs";
+  }
+  if (name.toLowerCase().includes("picture archiving") || name.toLowerCase().startsWith("pacs")) {
+    return "X-Ray";
+  }
+  return name;
+}
+
 export default function Sidebar({ modules = [] }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { profile, signOut } = useMedplumAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [enabledModules, setEnabledModules] = useState<Array<{ name: string; href: string; icon: LucideIcon }>>([]);
 
@@ -74,7 +88,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
       const moduleNav = enabled
         .filter(module => module.route) // Only modules with routes
         .map(module => ({
-          name: module.name,
+          name: normalizeModuleLabel(module.name),
           href: module.route!,
           icon: moduleIconMap[module.icon as keyof typeof moduleIconMap] ?? Puzzle,
         }));
@@ -109,8 +123,8 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
 
   return (
     <div className={cn(
-      "flex h-screen border-r bg-background relative transition-all duration-300",
-      isCollapsed ? "w-16" : "w-64"
+      "app-sidebar flex h-screen border-r bg-background relative transition-all duration-300",
+      isCollapsed ? "w-14" : "w-56"
     )}>
       <div className="flex flex-col flex-1">
         <div className="flex h-14 items-center border-b px-4 justify-between">
@@ -142,6 +156,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
                 <Link
                   key={item.name}
                   href={item.href}
+                  prefetch={true}
                   className={cn(
                     "flex items-center rounded-lg text-sm font-medium hover:bg-accent hover:text-accent-foreground",
                     isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground",
@@ -172,6 +187,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
               <Link
                 key={item.name}
                 href={item.href}
+                prefetch={true}
                 className={cn(
                   "flex items-center rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   isCollapsed ? "justify-center w-8 h-8 p-2 mx-auto" : "px-3 py-2"
@@ -182,7 +198,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
                 {!isCollapsed && <span className="ml-2">{item.name}</span>}
               </Link>
             ))}
-            {user ? (
+            {profile ? (
               <Button
                 variant="ghost"
                 className={cn(
@@ -190,7 +206,6 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
                   isCollapsed ? "justify-center w-8 h-8 p-2 mx-auto" : "justify-start px-3 py-2"
                 )}
                 onClick={async () => {
-                  try { await fetch('/api/auth/session', { method: 'DELETE' }); } catch {}
                   await signOut();
                   router.replace('/login');
                 }}

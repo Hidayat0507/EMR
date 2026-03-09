@@ -55,14 +55,37 @@ export interface ProvenanceData {
 export async function createProvenance(data: ProvenanceData): Promise<string> {
   const medplum = await getMedplumClient();
 
+  const filteredAgents = data.agent
+    .filter(agent => agent.who || agent.onBehalfOf)
+    .map(agent => ({
+      who:
+        agent.who ??
+        (agent.onBehalfOf
+          ? {
+              reference: agent.onBehalfOf.reference,
+              display: 'System (on behalf of organization)',
+            }
+          : {
+              reference: 'Organization/system',
+              display: 'System (automated)',
+            }),
+      onBehalfOf: agent.onBehalfOf,
+    }));
+
+  if (filteredAgents.length === 0) {
+    filteredAgents.push({
+      who: {
+        reference: 'Organization/system',
+        display: 'System (automated)',
+      },
+    });
+  }
+
   const provenance: Provenance = {
     resourceType: 'Provenance',
     target: data.target,
     recorded: data.recorded,
-    agent: data.agent.filter(agent => agent.who || agent.onBehalfOf).map(agent => ({
-      who: agent.who,
-      onBehalfOf: agent.onBehalfOf,
-    })),
+    agent: filteredAgents,
     activity: data.activity,
   };
 
@@ -143,4 +166,3 @@ export async function createProvenanceForResources(
     },
   });
 }
-

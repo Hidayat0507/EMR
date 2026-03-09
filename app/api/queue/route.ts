@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTriagedPatientsQueue, addPatientToQueue, removePatientFromQueue, updateQueueStatus } from '@/lib/models';
+import { requireAuth } from '@/lib/server/medplum-auth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const patients = await getTriagedPatientsQueue();
     return NextResponse.json({ success: true, patients });
   } catch (error: any) {
@@ -16,6 +18,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireAuth(req);
     const { patientId } = await req.json();
     if (!patientId) {
       return NextResponse.json({ success: false, error: 'patientId is required' }, { status: 400 });
@@ -30,6 +33,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    await requireAuth(req);
     const { patientId } = await req.json();
     if (!patientId) {
       return NextResponse.json({ success: false, error: 'patientId is required' }, { status: 400 });
@@ -44,6 +48,7 @@ export async function DELETE(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    await requireAuth(req);
     const { patientId, status } = await req.json();
     if (!patientId || typeof status === 'undefined') {
       return NextResponse.json({ success: false, error: 'patientId and status are required' }, { status: 400 });
