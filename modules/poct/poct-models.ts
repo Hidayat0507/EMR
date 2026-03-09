@@ -44,11 +44,25 @@ const STATUS_TO_SERVICEREQUEST: Record<POCTTest['status'], ServiceRequest['statu
 const SERVICEREQUEST_TO_STATUS: Record<ServiceRequest['status'], POCTTest['status']> = {
   draft: 'pending',
   active: 'pending',
-  on-hold: 'pending',
+  'on-hold': 'pending',
   revoked: 'cancelled',
   completed: 'completed',
-  entered-in-error: 'cancelled',
+  'entered-in-error': 'cancelled',
   unknown: 'pending',
+};
+
+const POCT_TEST_CODING: Partial<Record<POCTTest['testType'], { system: string; code: string; display: string }>> = {
+  blood_glucose: { system: 'http://loinc.org', code: '2339-0', display: 'Glucose [Mass/volume] in Blood' },
+  urinalysis: { system: 'http://loinc.org', code: '24357-6', display: 'Urinalysis complete panel' },
+  pregnancy: { system: 'http://loinc.org', code: '2106-3', display: 'Choriogonadotropin (pregnancy test) [Presence] in Urine' },
+  strep_throat: { system: 'http://loinc.org', code: '60489-2', display: 'Streptococcus pyogenes Ag [Presence] in Throat' },
+  influenza: { system: 'http://loinc.org', code: '80382-5', display: 'Influenza virus A and B Ag panel' },
+  covid19: { system: 'http://loinc.org', code: '94558-4', display: 'SARS-CoV-2 Ag [Presence] in Respiratory specimen' },
+  hemoglobin: { system: 'http://loinc.org', code: '718-7', display: 'Hemoglobin [Mass/volume] in Blood' },
+  cholesterol: { system: 'http://loinc.org', code: '2093-3', display: 'Cholesterol [Mass/volume] in Serum or Plasma' },
+  inr: { system: 'http://loinc.org', code: '6301-6', display: 'INR in Platelet poor plasma' },
+  troponin: { system: 'http://loinc.org', code: '10839-9', display: 'Troponin I [Mass/volume] in Serum or Plasma' },
+  bnp: { system: 'http://loinc.org', code: '33762-6', display: 'BNP [Mass/volume] in Blood' },
 };
 
 function mapReportToResult(report?: DiagnosticReport): POCTTestResult | undefined {
@@ -92,12 +106,17 @@ function mapServiceRequestToPOCT(sr: ServiceRequest, report?: DiagnosticReport):
 }
 
 async function findReportForRequest(medplum: MedplumClient, serviceRequestId: string): Promise<DiagnosticReport | undefined> {
-  const reports = await medplum.searchResources<DiagnosticReport>('DiagnosticReport', {
-    basedOn: `ServiceRequest/${serviceRequestId}`,
-    _sort: '-issued',
-    _count: '1',
-  });
-  return reports[0];
+  try {
+    const reports = await medplum.searchResources<DiagnosticReport>('DiagnosticReport', {
+      'based-on': `ServiceRequest/${serviceRequestId}`,
+      _sort: '-issued',
+      _count: '1',
+    });
+    return reports[0];
+  } catch (error) {
+    console.warn('Failed to find DiagnosticReport for ServiceRequest', serviceRequestId, error);
+    return undefined;
+  }
 }
 
 export async function createPOCTTest(
@@ -106,6 +125,7 @@ export async function createPOCTTest(
   const medplum = await getMedplumClient();
   const authoredOn = typeof testData.orderedAt === 'string' ? testData.orderedAt : testData.orderedAt?.toISOString() || new Date().toISOString();
   const status = STATUS_TO_SERVICEREQUEST[testData.status] || 'active';
+  const coding = POCT_TEST_CODING[testData.testType];
 
   const sr = await medplum.createResource<ServiceRequest>({
     resourceType: 'ServiceRequest',
@@ -124,6 +144,7 @@ export async function createPOCTTest(
     ],
     priority: (testData.urgency as ServiceRequest['priority']) || 'routine',
     code: {
+      coding: coding ? [coding] : undefined,
       text: testData.testName,
     },
     subject: { reference: `Patient/${testData.patientId}`, display: testData.patientName },
@@ -154,11 +175,17 @@ export async function getPOCTTestById(id: string): Promise<POCTTest | null> {
 export async function getPOCTTestsByPatient(patientId: string): Promise<POCTTest[]> {
   const medplum = await getMedplumClient();
   try {
-    const requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
+    let requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
       subject: `Patient/${patientId}`,
       category: 'laboratory',
       _sort: '-authored',
     });
+    if (requests.length === 0) {
+      requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
+        subject: `Patient/${patientId}`,
+        _sort: '-authored',
+      });
+    }
 
     const items: POCTTest[] = [];
     for (const sr of requests) {
@@ -176,11 +203,17 @@ export async function getPOCTTestsByStatus(status: POCTTest['status']): Promise<
   const medplum = await getMedplumClient();
   const srStatus = STATUS_TO_SERVICEREQUEST[status] || 'active';
   try {
-    const requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
+    let requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
       category: 'laboratory',
       status: srStatus,
       _sort: '-authored',
     });
+    if (requests.length === 0) {
+      requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
+        status: srStatus,
+        _sort: '-authored',
+      });
+    }
 
     const items: POCTTest[] = [];
     for (const sr of requests) {
@@ -201,11 +234,17 @@ export async function getTodaysPOCTTests(): Promise<POCTTest[]> {
   const start = today.toISOString().split('T')[0];
 
   try {
-    const requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
+    let requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
       category: 'laboratory',
       authored: `ge${start}`,
       _sort: '-authored',
     });
+    if (requests.length === 0) {
+      requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
+        authored: `ge${start}`,
+        _sort: '-authored',
+      });
+    }
 
     const items: POCTTest[] = [];
     for (const sr of requests) {

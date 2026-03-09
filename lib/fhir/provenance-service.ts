@@ -58,13 +58,26 @@ export async function createProvenance(data: ProvenanceData): Promise<string> {
   const filteredAgents = data.agent
     .filter(agent => agent.who || agent.onBehalfOf)
     .map(agent => ({
-      who: agent.who,
+      who:
+        agent.who ??
+        (agent.onBehalfOf
+          ? {
+              reference: agent.onBehalfOf.reference,
+              display: 'System (on behalf of organization)',
+            }
+          : {
+              reference: 'Organization/system',
+              display: 'System (automated)',
+            }),
       onBehalfOf: agent.onBehalfOf,
     }));
 
   if (filteredAgents.length === 0) {
     filteredAgents.push({
-      who: { display: 'System (automated)' },
+      who: {
+        reference: 'Organization/system',
+        display: 'System (automated)',
+      },
     });
   }
 
@@ -153,4 +166,3 @@ export async function createProvenanceForResources(
     },
   });
 }
-

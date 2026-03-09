@@ -58,6 +58,22 @@ const moduleIconMap: Record<string, LucideIcon> = {
   BarChart,
 };
 
+function normalizeModuleLabel(name: string): string {
+  if (name.toLowerCase().startsWith("analytics")) {
+    return "Analytics";
+  }
+  if (name.toLowerCase().startsWith("inventory")) {
+    return "Inventory";
+  }
+  if (name.toLowerCase().includes("point of care") || name.toLowerCase().startsWith("poct")) {
+    return "Labs";
+  }
+  if (name.toLowerCase().includes("picture archiving") || name.toLowerCase().startsWith("pacs")) {
+    return "X-Ray";
+  }
+  return name;
+}
+
 export default function Sidebar({ modules = [] }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -72,7 +88,7 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
       const moduleNav = enabled
         .filter(module => module.route) // Only modules with routes
         .map(module => ({
-          name: module.name,
+          name: normalizeModuleLabel(module.name),
           href: module.route!,
           icon: moduleIconMap[module.icon as keyof typeof moduleIconMap] ?? Puzzle,
         }));
@@ -107,8 +123,8 @@ export default function Sidebar({ modules = [] }: SidebarProps) {
 
   return (
     <div className={cn(
-      "flex h-screen border-r bg-background relative transition-all duration-300",
-      isCollapsed ? "w-16" : "w-64"
+      "app-sidebar flex h-screen border-r bg-background relative transition-all duration-300",
+      isCollapsed ? "w-14" : "w-56"
     )}>
       <div className="flex flex-col flex-1">
         <div className="flex h-14 items-center border-b px-4 justify-between">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Patient, Consultation } from "@/lib/models";
+import type { Patient, Consultation } from "@/lib/models";
 import { formatDisplayDate } from "@/lib/utils";
 import { Loader2, Download } from "lucide-react";
 import { PDFViewer, pdf } from "@react-pdf/renderer";
@@ -19,16 +19,17 @@ import {
   fetchOrganizationDetails,
   type OrganizationDetails,
 } from "@/lib/org";
+import type { BillPayload } from "@/lib/fhir/invoice-service";
 
 interface BillModalProps {
   isOpen: boolean;
   onClose: () => void;
   isLoading: boolean;
-  data: { patient: Patient | null; consultation: Consultation | null } | null;
+  data: { patient: Patient | null; consultation: Consultation | null; bill?: BillPayload | null } | null;
 }
 
 export default function BillModal({ isOpen, onClose, isLoading, data }: BillModalProps) {
-  const { patient, consultation } = data || {};
+  const { patient, consultation, bill } = data || {};
   const [organization, setOrganization] = useState<OrganizationDetails | null>(null);
   const [orgLoaded, setOrgLoaded] = useState(false);
   const [orgLoading, setOrgLoading] = useState(false);
@@ -71,10 +72,18 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
     }
   };
 
+  const resolvedBillData = useMemo(() => {
+    if (!patient || !consultation) return null;
+    if (bill) {
+      return bill;
+    }
+    return buildBillData(patient, consultation);
+  }, [patient, consultation, bill]);
+
   const handleDownloadPdf = async () => {
-    if (!patient || !consultation) return;
+    if (!patient || !consultation || !resolvedBillData) return;
     const orgInfo = await ensureOrganizationDetails();
-    const dataForPdf = buildBillData(patient, consultation);
+    const dataForPdf = resolvedBillData;
     const blob = await pdf(<BillDocument data={dataForPdf} organization={orgInfo} />).toBlob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -129,7 +138,7 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
               <div className="flex justify-center items-center h-full">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
-            ) : !patient || !consultation ? (
+            ) : !patient || !consultation || !resolvedBillData ? (
               <div className="text-center py-10 text-muted-foreground">
                 Failed to load bill details.
               </div>
@@ -137,7 +146,7 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
               <div className="h-full border rounded-lg overflow-hidden">
                 <PDFViewer className="w-full h-full">
                   <BillDocument
-                    data={buildBillData(patient, consultation)}
+                    data={resolvedBillData}
                     organization={organization}
                   />
                 </PDFViewer>
@@ -147,7 +156,7 @@ export default function BillModal({ isOpen, onClose, isLoading, data }: BillModa
 
           <DialogFooter className="px-6 py-4 border-t">
             <Button variant="outline" onClick={onClose}>Close</Button>
-            {patient && consultation && (
+            {patient && consultation && resolvedBillData && (
               <Button
                 onClick={handleDownloadPdf}
                 disabled={isLoading || (orgLoading && !orgLoaded)}

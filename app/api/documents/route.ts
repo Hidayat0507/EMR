@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createPatientDocument, deletePatientDocument, listPatientDocuments } from '@/lib/fhir/document-service';
+import { requireAuth } from '@/lib/server/medplum-auth';
 
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const patientId = searchParams.get('patientId');
     if (!patientId) {
@@ -19,6 +21,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const body = await request.json();
     const { patientId, title, url, contentType, size, uploadedBy, storagePath } = body || {};
 
@@ -45,6 +48,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    await requireAuth(request);
     const body = await request.json();
     const { id } = body || {};
     if (!id) {

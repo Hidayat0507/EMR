@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { triagePatient } from "@/lib/models";
 import { TriageLevel, VitalSigns } from "@/lib/types";
-import { getCurrentProfile } from "@/lib/server/medplum-auth";
+import { getCurrentProfile, requireAuth } from "@/lib/server/medplum-auth";
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const body = await request.json();
     
     const {
@@ -63,7 +64,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
 
 
 

@@ -479,7 +479,18 @@ export async function removePatientFromQueue(patientId: string): Promise<void> {
 }
 
 export async function updateQueueStatus(patientId: string, status: QueueStatus): Promise<void> {
-  await updateQueueStatusForPatient(patientId, status);
+  try {
+    await updateQueueStatusForPatient(patientId, status);
+  } catch (error: any) {
+    if (
+      (status === 'meds_and_bills' || status === 'completed') &&
+      typeof error?.message === 'string' &&
+      error.message.includes('No active triage encounter found')
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function getConsultationsWithDetails(statuses: QueueStatus[]): Promise<BillableConsultation[]> {

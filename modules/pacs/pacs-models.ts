@@ -46,10 +46,10 @@ const STATUS_TO_SERVICEREQUEST: Record<ImagingStudy['status'], ServiceRequest['s
 const SERVICEREQUEST_TO_STATUS: Record<ServiceRequest['status'], ImagingStudy['status']> = {
   draft: 'ordered',
   active: 'ordered',
-  on-hold: 'scheduled',
+  'on-hold': 'scheduled',
   revoked: 'cancelled',
   completed: 'completed',
-  entered-in-error: 'cancelled',
+  'entered-in-error': 'cancelled',
   unknown: 'ordered',
 };
 
@@ -85,6 +85,17 @@ function mapServiceRequestToImaging(sr: ServiceRequest, report?: ImagingReport):
     createdAt: orderedAt,
     updatedAt: sr.meta?.lastUpdated,
   };
+}
+
+function isImagingServiceRequest(sr: ServiceRequest): boolean {
+  return (sr.category || []).some((category) =>
+    (category.coding || []).some(
+      (coding) =>
+        coding.code === '363679005' ||
+        coding.display?.toLowerCase().includes('imaging') ||
+        coding.code?.toLowerCase() === 'imaging'
+    )
+  );
 }
 
 async function findReportForRequest(medplum: MedplumClient, serviceRequestId: string): Promise<ImagingReport | undefined> {
@@ -161,6 +172,25 @@ export async function getImagingStudyById(id: string): Promise<ImagingStudy | nu
   } catch (err) {
     console.error('Failed to read imaging study from Medplum', err);
     return null;
+  }
+}
+
+export async function getAllImagingStudies(): Promise<ImagingStudy[]> {
+  const medplum = await getMedplumClient();
+  try {
+    const requests = await medplum.searchResources<ServiceRequest>('ServiceRequest', {
+      _count: '200',
+    });
+
+    const studies: ImagingStudy[] = [];
+    for (const sr of requests.filter(isImagingServiceRequest)) {
+      const report = await findReportForRequest(medplum, sr.id || '');
+      studies.push(mapServiceRequestToImaging(sr, report));
+    }
+    return studies;
+  } catch (err) {
+    console.error('Failed to list all imaging studies from Medplum', err);
+    return [];
   }
 }
 

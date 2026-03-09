@@ -9,6 +9,24 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+function resolveSafeNext(next: string | null): string {
+  if (!next) return "/dashboard";
+  if (next.startsWith("/")) return next;
+
+  try {
+    const candidate = new URL(next);
+    const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN;
+    if (!baseDomain) return "/dashboard";
+    const hostname = candidate.hostname;
+    if (hostname === baseDomain || hostname.endsWith(`.${baseDomain}`)) {
+      return candidate.toString();
+    }
+    return "/dashboard";
+  } catch {
+    return "/dashboard";
+  }
+}
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,8 +43,7 @@ export default function Login() {
     try {
       await signIn(email, password);
       // Replace to avoid back navigation to login
-      const next = searchParams.get('next');
-      const safeNext = next && next.startsWith('/') ? next : '/dashboard';
+      const safeNext = resolveSafeNext(searchParams.get('next'));
       router.replace(safeNext);
     } catch (error: any) {
       toast({

@@ -11,6 +11,13 @@ import {
 } from "@/components/ui/select";
 import { Medication } from "@/lib/inventory";
 import { MEDICATION_CATEGORIES } from "@/lib/constants";
+import { useToast } from "@/components/ui/use-toast";
+
+const parseStrengths = (value: string) =>
+  value
+    .split(/[,|;]/)
+    .map((token) => token.trim())
+    .filter(Boolean);
 
 interface EditMedicationFormProps {
   medication: Medication;
@@ -19,18 +26,32 @@ interface EditMedicationFormProps {
 }
 
 export function EditMedicationForm({ medication, onSubmit, onCancel }: EditMedicationFormProps) {
+  const { toast } = useToast();
+  const [category, setCategory] = React.useState(medication.category);
+  const [strengthsInput, setStrengthsInput] = React.useState(medication.strengths?.join(" | ") ?? "");
+  const [unit, setUnit] = React.useState(medication.unit || "tablet");
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+
+    if (!category) {
+      toast({
+        variant: "destructive",
+        title: "Missing category",
+        description: "Please select a category before saving.",
+      });
+      return;
+    }
     
     const medicationData: Partial<Medication> = {
       name: formData.get('name') as string,
-      category: formData.get('category') as string,
+      category,
       dosageForm: formData.get('dosageForm') as string,
-      strengths: [], // You'll need to handle this separately
+      strengths: parseStrengths(strengthsInput),
       stock: parseInt(formData.get('stock') as string),
       minimumStock: parseInt(formData.get('minimumStock') as string),
-      unit: 'units',
+      unit,
       expiryDate: formData.get('expiryDate') as string,
       unitPrice: parseFloat(formData.get('unitPrice') as string),
     };
@@ -53,18 +74,28 @@ export function EditMedicationForm({ medication, onSubmit, onCancel }: EditMedic
         </div>
         <div className="space-y-2">
           <Label htmlFor="category">Category</Label>
-          <Select name="category" defaultValue={medication.category}>
+          <Select value={category} onValueChange={setCategory}>
             <SelectTrigger>
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
               {MEDICATION_CATEGORIES.map((category) => (
-                <SelectItem key={category} value={category.toLowerCase()}>
+                <SelectItem key={category} value={category}>
                   {category}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="strengths">Strengths</Label>
+          <Input
+            id="strengths"
+            value={strengthsInput}
+            onChange={(e) => setStrengthsInput(e.target.value)}
+            placeholder="e.g. 500mg | 1g"
+          />
+          <p className="text-xs text-muted-foreground">Separate multiple strengths with commas or |</p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="dosageForm">Dosage Form</Label>
@@ -115,6 +146,16 @@ export function EditMedicationForm({ medication, onSubmit, onCancel }: EditMedic
             step="0.01"
             defaultValue={medication.unitPrice}
             placeholder="Enter unit price"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="unit">Unit</Label>
+          <Input
+            id="unit"
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+            placeholder="e.g. tablet, capsule, ml"
             required
           />
         </div>

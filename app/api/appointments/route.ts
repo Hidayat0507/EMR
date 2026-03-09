@@ -11,12 +11,14 @@ import {
   updateAppointmentStatus,
 } from '@/lib/fhir/appointment-service';
 import type { AppointmentStatus } from '@/lib/models';
+import { requireAuth } from '@/lib/server/medplum-auth';
 
 /**
  * POST - Create a new appointment
  */
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const appointmentData = await request.json();
 
     // Validate required fields
@@ -52,6 +54,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const appointmentId = searchParams.get('id');
     const patientId = searchParams.get('patientId');
@@ -102,6 +105,7 @@ export async function GET(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { appointmentId, status, checkInTime, completedAt, cancelledAt } = await request.json();
 
     if (!appointmentId || !status) {
@@ -129,7 +133,6 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
-
 
 
 

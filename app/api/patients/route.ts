@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getClinicIdFromRequest } from '@/lib/server/clinic';
+import { requireAuth } from '@/lib/server/medplum-auth';
 import {
   savePatientToMedplum,
   getPatientFromMedplum,
@@ -18,6 +19,7 @@ import {
  */
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const patientData = await request.json();
     let clinicId = await getClinicIdFromRequest(request);
 
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const patientId = searchParams.get('id');
     const searchQuery = searchParams.get('search');
@@ -138,6 +141,7 @@ export async function GET(request: NextRequest) {
  */
 export async function PATCH(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { patientId, ...updates } = await request.json();
     let clinicId = await getClinicIdFromRequest(request);
 
@@ -175,7 +179,6 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
-
 
 
 

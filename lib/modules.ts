@@ -27,16 +27,16 @@ export const MODULES: Record<ModuleId, Omit<Module, 'enabled'>> = {
   },
   poct: {
     id: 'poct',
-    name: 'POCT (Point of Care Testing)',
-    description: 'On-site laboratory testing and results management',
+    name: 'POCT',
+    description: 'On-site lab testing and results management',
     icon: 'TestTube',
     route: '/poct',
     category: 'diagnostic',
   },
   pacs: {
     id: 'pacs',
-    name: 'PACS (Medical Imaging)',
-    description: 'Picture Archiving and Communication System for medical images',
+    name: 'PACS',
+    description: 'Medical imaging archive and viewer',
     icon: 'Image',
     route: '/pacs',
     category: 'diagnostic',
@@ -160,8 +160,6 @@ export function resetModulesToDefault(): void {
   
   window.dispatchEvent(new CustomEvent('modulesReset'));
 }
-
-
 
 
 

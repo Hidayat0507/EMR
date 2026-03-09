@@ -25,10 +25,11 @@ export default async function RootLayout({
           attribute="class"
           defaultTheme="system"
           enableSystem
+          themes={["light", "dark", "v3"]}
           disableTransitionOnChange
         >
           <MedplumAuthProvider>
-            <div className="relative flex min-h-screen flex-col">
+            <div className="app-shell relative flex min-h-screen flex-col">
               <div className="flex flex-1">
                 <Sidebar
                   modules={modules.map((module) => ({
@@ -38,8 +39,8 @@ export default async function RootLayout({
                     icon: module.icon,
                   }))}
                 />
-                <main className="flex-1 overflow-y-auto">
-                  <div className="container p-8">
+                <main className="app-main flex-1 overflow-y-auto">
+                  <div className="app-content container p-8">
                     {children}
                   </div>
                 </main>

@@ -94,7 +94,7 @@ export function LabOrderForm({ patientId, encounterId, onOrderPlaced }: LabOrder
       <CardHeader>
         <CardTitle>Order Laboratory Tests</CardTitle>
         <CardDescription>
-          Select tests and specify priority for Point-of-Care Testing
+          Select tests and specify priority for POCT
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -197,7 +197,6 @@ export function LabOrderForm({ patientId, encounterId, onOrderPlaced }: LabOrder
     </Card>
   );
 }
-
 
 
 

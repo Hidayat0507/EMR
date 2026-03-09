@@ -29,11 +29,6 @@ export function MedplumAuthProvider({ children }: { children: React.ReactNode })
     clientId: MEDPLUM_CLIENT_ID || undefined,
     onUnauthenticated: () => {
       setProfile(null);
-      // Clear stored token
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('medplum-access-token');
-        sessionStorage.removeItem('medplum-access-token');
-      }
     },
   }));
 
@@ -75,21 +70,24 @@ export function MedplumAuthProvider({ children }: { children: React.ReactNode })
       return;
     }
 
-    const storedToken = localStorage.getItem('medplum-access-token');
-    if (!storedToken) {
-      setLoading(false);
-      return;
-    }
-
-    medplum.setAccessToken(storedToken);
-    setProfile({ resourceType: 'Practitioner', id: 'token-auth' } as Resource);
-    setLoading(false);
-
-    medplum.getProfile()
-      .then((p) => { if (p) setProfile(p as Resource); })
+    fetch('/api/auth/me', { method: 'GET' })
+      .then(async (res) => {
+        if (!res.ok) {
+          setProfile(null);
+          return;
+        }
+        const data = await res.json();
+        if (data?.id && data?.resourceType) {
+          setProfile({ resourceType: data.resourceType, id: data.id } as Resource);
+        } else {
+          setProfile(null);
+        }
+      })
       .catch(() => {
-        localStorage.removeItem('medplum-access-token');
         setProfile(null);
+      })
+      .finally(() => {
+        setLoading(false);
       });
   }, [medplum]);
 
@@ -110,7 +108,7 @@ export function MedplumAuthProvider({ children }: { children: React.ReactNode })
 
       // Try to load the user profile
       try {
-        const maybeProfile = await medplum.getProfile();
+        const maybeProfile = await medplum.getProfileAsync();
         if (maybeProfile) {
           setProfile(maybeProfile as Resource | null);
         }
@@ -123,12 +121,10 @@ export function MedplumAuthProvider({ children }: { children: React.ReactNode })
         throw new Error('Login succeeded but no access token was returned');
       }
 
-      localStorage.setItem('medplum-access-token', accessToken);
-
       await fetch('/api/auth/medplum-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken }),
+        body: JSON.stringify({ accessToken, enableSsoBootstrap: true }),
       });
     } catch (error: any) {
       throw new Error(error.message || 'Login failed');
@@ -148,9 +144,6 @@ export function MedplumAuthProvider({ children }: { children: React.ReactNode })
       setProfile(null);
       setClinicIdState(null);
 
-      // Clear stored tokens
-      localStorage.removeItem('medplum-access-token');
-      sessionStorage.removeItem('medplum-access-token');
       localStorage.removeItem('clinic-id');
 
       // Clear server session cookie

@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getClinicIdFromRequest } from "@/lib/server/clinic";
+import { requireAuth } from "@/lib/server/medplum-auth";
 import {
   createProcedureInMedplum,
   deleteProcedureInMedplum,
@@ -24,6 +25,7 @@ function resolveClinicId(clinicId: string | null): string | null {
 
 export async function GET(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     const clinicId = resolveClinicId(await getClinicIdFromRequest(request));
@@ -60,6 +62,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAuth(request);
     const clinicId = resolveClinicId(await getClinicIdFromRequest(request));
     if (!clinicId) {
       return NextResponse.json(
@@ -94,6 +97,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    await requireAuth(request);
     const clinicId = resolveClinicId(await getClinicIdFromRequest(request));
     if (!clinicId) {
       return NextResponse.json(
@@ -127,6 +131,7 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {

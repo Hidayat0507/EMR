@@ -26,11 +26,19 @@ export interface ConsultationData {
   patientId: string;
   chiefComplaint?: string;
   diagnosis: string;
-  procedures?: Array<{ name: string; price?: number }>;
+  procedures?: Array<{
+    name: string;
+    price?: number;
+    notes?: string;
+    procedureId?: string;
+    codingSystem?: string;
+    codingCode?: string;
+    codingDisplay?: string;
+  }>;
   notes?: string;
   progressNote?: string;
   prescriptions?: Array<{
-    medication: { id: string; name: string };
+    medication: { id: string; name: string; strength?: string };
     frequency: string;
     duration: string;
     price?: number;
@@ -39,12 +47,14 @@ export interface ConsultationData {
   date?: Date;
   practitionerId?: string; // FHIR Practitioner ID
   organizationId?: string; // FHIR Organization ID
+  queueStatus?: 'arrived' | 'waiting' | 'in_consultation' | 'meds_and_bills' | 'completed';
 }
 
 export interface SavedConsultation extends ConsultationData {
   id: string; // Encounter ID
   patientName?: string;
   createdAt: Date;
+  updatedAt?: Date;
 }
 
 let medplumClient: MedplumClient | undefined;
@@ -70,11 +80,11 @@ function matchesClinic(resource: { identifier?: { system?: string; value?: strin
   return Boolean(identifierMatch || serviceProviderMatch || managingOrgMatch);
 }
 
-function withClinicIdentifiers<T extends { identifier?: { system?: string; value?: string }[] }>(resource: T, clinicId?: string): T {
+function withClinicIdentifiers<T extends Record<string, any>>(resource: T, clinicId?: string): T {
   if (!clinicId) return resource;
   return {
     ...resource,
-    identifier: addClinicIdentifier(resource.identifier, clinicId),
+    identifier: addClinicIdentifier(resource.identifier as { system?: string; value?: string }[] | undefined, clinicId),
   };
 }
 
@@ -127,26 +137,35 @@ function narrativeToText(narrative?: { div?: string }): string {
   return decodeHtml(stripped).replace(/\r/g, '').trim();
 }
 
-function parseSoapSections(note: string) {
+function parseSoapSections(note: string): Partial<Record<SoapSectionKey, string>> & { note?: string } {
   const trimmed = note.trim();
   if (!trimmed) {
     return {};
   }
-  const matches = [...trimmed.matchAll(/(^|\n)\s*(subjective|objective|assessment|plan)\s*:\s*/gi)];
+  const regex = /(^|\n)\s*(subjective|objective|assessment|plan)\s*:\s*/gi;
+  const matches: Array<{ index: number; label: SoapSectionKey; full: string }> = [];
+  let nextMatch: RegExpExecArray | null;
+  while ((nextMatch = regex.exec(trimmed)) !== null) {
+    const label = nextMatch[2]?.toLowerCase() as SoapSectionKey | undefined;
+    if (!label) continue;
+    matches.push({
+      index: nextMatch.index ?? 0,
+      label,
+      full: nextMatch[0],
+    });
+  }
   if (matches.length === 0) {
     return { note: trimmed };
   }
 
-  const sections: Partial<Record<SoapSectionKey, string>> = {};
+  const sections: Partial<Record<SoapSectionKey, string>> & { note?: string } = {};
   for (let idx = 0; idx < matches.length; idx += 1) {
     const match = matches[idx];
-    const label = match[2]?.toLowerCase() as SoapSectionKey | undefined;
-    if (!label) continue;
-    const start = (match.index ?? 0) + match[0].length;
-    const end = idx + 1 < matches.length ? matches[idx + 1].index ?? trimmed.length : trimmed.length;
+    const start = match.index + match.full.length;
+    const end = idx + 1 < matches.length ? matches[idx + 1].index : trimmed.length;
     const content = trimmed.slice(start, end).trim();
     if (content) {
-      sections[label] = content;
+      sections[match.label] = content;
     }
   }
   return sections;
@@ -492,6 +511,7 @@ export async function saveConsultationToMedplum(
         encounter: { reference: `Encounter/${encounter.id}` },
         code: codeable,
         performedDateTime: encounterDate,
+        note: proc.notes?.trim() ? [{ text: proc.notes.trim() }] : undefined,
       }, clinicId)) as Procedure;
       createdProcedures.push(procedure);
     }
@@ -673,6 +693,439 @@ export async function saveConsultationToMedplum(
   return encounter.id!;
 }
 
+function toDosageText(rx: NonNullable<ConsultationData['prescriptions']>[number]): string {
+  return `${(rx as any).dosage || ''} ${rx.frequency || ''} for ${rx.duration || ''}`.trim();
+}
+
+function sortByLastUpdatedAsc<T extends { meta?: { lastUpdated?: string } }>(resources: T[]): T[] {
+  return [...resources].sort((a, b) => {
+    const aTime = a.meta?.lastUpdated ? new Date(a.meta.lastUpdated).getTime() : 0;
+    const bTime = b.meta?.lastUpdated ? new Date(b.meta.lastUpdated).getTime() : 0;
+    return aTime - bTime;
+  });
+}
+
+async function upsertObservationByCodeText(
+  medplum: MedplumClient,
+  existing: Observation[],
+  codeText: string,
+  value: string | undefined,
+  patientReference: string,
+  encounterId: string,
+  encounterDate: string,
+  clinicId?: string
+) {
+  if (value === undefined) return;
+  const observation = existing.find((obs) => obs.code?.text === codeText);
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    if (observation?.id) {
+      await medplum.deleteResource('Observation', observation.id);
+    }
+    return;
+  }
+
+  if (observation?.id) {
+    await medplum.updateResource(
+      withClinicIdentifiers({
+        ...observation,
+        status: 'final',
+        valueString: trimmed,
+        effectiveDateTime: encounterDate,
+      } as Observation, clinicId)
+    );
+    return;
+  }
+
+  await validateAndCreate<Observation>(medplum, withClinicIdentifiers({
+    resourceType: 'Observation',
+    status: 'final',
+    subject: { reference: patientReference },
+    encounter: { reference: `Encounter/${encounterId}` },
+    code: { text: codeText },
+    valueString: trimmed,
+    effectiveDateTime: encounterDate,
+  }, clinicId));
+}
+
+/**
+ * Update an existing consultation in Medplum by updating related resources under the same Encounter.
+ */
+export async function updateConsultationInMedplum(
+  encounterId: string,
+  updates: Partial<ConsultationData>,
+  clinicId?: string
+): Promise<boolean> {
+  const medplum = await getMedplumClient();
+  const encounter = await medplum.readResource('Encounter', encounterId);
+
+  if (!matchesClinic(encounter as any, clinicId)) {
+    return false;
+  }
+
+  const patientReference = encounter.subject?.reference;
+  if (!patientReference) {
+    throw new Error('Encounter does not have a patient reference');
+  }
+
+  const encounterDate = encounter.period?.start || new Date().toISOString();
+
+  if (updates.queueStatus) {
+    const existingExtensions = (encounter.extension || []) as any[];
+    const triageExtIndex = existingExtensions.findIndex((e) => e.url === 'https://ucc.emr/triage-encounter');
+    const currentTriageExt = triageExtIndex >= 0 ? existingExtensions[triageExtIndex] : null;
+    const currentSubExtensions = Array.isArray(currentTriageExt?.extension) ? currentTriageExt.extension : [];
+    const nowIso = new Date().toISOString();
+
+    const withoutQueue = currentSubExtensions.filter(
+      (sub: any) => sub.url !== 'queueStatus' && sub.url !== 'queueAddedAt' && sub.url !== 'isTriaged'
+    );
+
+    const nextTriageExt = {
+      url: 'https://ucc.emr/triage-encounter',
+      extension: [
+        ...withoutQueue,
+        { url: 'queueStatus', valueString: updates.queueStatus },
+        {
+          url: 'queueAddedAt',
+          valueDateTime:
+            currentSubExtensions.find((sub: any) => sub.url === 'queueAddedAt')?.valueDateTime || encounter.period?.start || nowIso,
+        },
+        { url: 'isTriaged', valueBoolean: true },
+      ],
+    };
+
+    const nextExtensions =
+      triageExtIndex >= 0
+        ? existingExtensions.map((ext, idx) => (idx === triageExtIndex ? nextTriageExt : ext))
+        : [...existingExtensions, nextTriageExt];
+
+    await medplum.updateResource({
+      ...encounter,
+      extension: nextExtensions,
+    } as any);
+  }
+
+  const [conditions, observations, procedures, medications] = await Promise.all([
+    medplum.searchResources('Condition', { encounter: `Encounter/${encounterId}` }),
+    medplum.searchResources('Observation', { encounter: `Encounter/${encounterId}` }),
+    medplum.searchResources('Procedure', { encounter: `Encounter/${encounterId}` }),
+    medplum.searchResources('MedicationRequest', { encounter: `Encounter/${encounterId}` }),
+  ]);
+
+  // Update diagnosis (single primary condition for now)
+  if (updates.diagnosis !== undefined) {
+    const diagnosisCode = findDiagnosisByText(updates.diagnosis);
+    const code: any = { text: updates.diagnosis };
+    if (diagnosisCode) {
+      code.coding = [];
+      if (diagnosisCode.icd10) {
+        code.coding.push({
+          system: 'http://hl7.org/fhir/sid/icd-10',
+          code: diagnosisCode.icd10.code,
+          display: diagnosisCode.icd10.display,
+        });
+      }
+      if (diagnosisCode.snomed) {
+        code.coding.push({
+          system: 'http://snomed.info/sct',
+          code: diagnosisCode.snomed.code,
+          display: diagnosisCode.snomed.display,
+        });
+      }
+    }
+
+    const primary = conditions[0];
+    if (primary?.id) {
+      await medplum.updateResource(
+        withClinicIdentifiers({
+          ...primary,
+          code,
+          recordedDate: encounterDate,
+        } as Condition, clinicId)
+      );
+    } else {
+      await validateAndCreate<Condition>(medplum, withClinicIdentifiers({
+        resourceType: 'Condition',
+        subject: { reference: patientReference },
+        encounter: { reference: `Encounter/${encounterId}` },
+        code,
+        recordedDate: encounterDate,
+        clinicalStatus: {
+          coding: [
+            {
+              system: 'http://terminology.hl7.org/CodeSystem/condition-clinical',
+              code: 'active',
+              display: 'Active',
+            },
+          ],
+        },
+        verificationStatus: {
+          coding: [
+            {
+              system: 'http://terminology.hl7.org/CodeSystem/condition-ver-status',
+              code: 'confirmed',
+              display: 'Confirmed',
+            },
+          ],
+        },
+      }, clinicId));
+    }
+  }
+
+  await upsertObservationByCodeText(
+    medplum,
+    observations as Observation[],
+    'Chief Complaint',
+    updates.chiefComplaint,
+    patientReference,
+    encounterId,
+    encounterDate,
+    clinicId
+  );
+  await upsertObservationByCodeText(
+    medplum,
+    observations as Observation[],
+    'Clinical Notes',
+    updates.notes,
+    patientReference,
+    encounterId,
+    encounterDate,
+    clinicId
+  );
+  await upsertObservationByCodeText(
+    medplum,
+    observations as Observation[],
+    'Progress Note',
+    updates.progressNote,
+    patientReference,
+    encounterId,
+    encounterDate,
+    clinicId
+  );
+
+  if (updates.procedures !== undefined) {
+    const existingProcedures = sortByLastUpdatedAsc(procedures as Procedure[]);
+
+    for (let idx = 0; idx < updates.procedures.length; idx += 1) {
+      const proc = updates.procedures[idx];
+      const codeable = proc.codingCode || proc.codingDisplay || proc.codingSystem
+        ? {
+            coding: proc.codingCode
+              ? [
+                  {
+                    system: proc.codingSystem || 'http://snomed.info/sct',
+                    code: proc.codingCode,
+                    display: proc.codingDisplay || proc.name,
+                  },
+                ]
+              : undefined,
+            text: proc.codingDisplay || proc.name,
+          }
+        : { text: proc.name };
+
+      const existing = existingProcedures[idx];
+      if (existing?.id) {
+        await medplum.updateResource(
+          withClinicIdentifiers({
+            ...existing,
+            status: 'completed',
+            code: codeable,
+            performedDateTime: encounterDate,
+            note: proc.notes?.trim() ? [{ text: proc.notes.trim() }] : undefined,
+          } as Procedure, clinicId)
+        );
+      } else {
+        await validateAndCreate<Procedure>(medplum, withClinicIdentifiers({
+          resourceType: 'Procedure',
+          status: 'completed',
+          subject: { reference: patientReference },
+          encounter: { reference: `Encounter/${encounterId}` },
+          code: codeable,
+          performedDateTime: encounterDate,
+          note: proc.notes?.trim() ? [{ text: proc.notes.trim() }] : undefined,
+        }, clinicId));
+      }
+    }
+
+    for (let idx = updates.procedures.length; idx < existingProcedures.length; idx += 1) {
+      const existing = existingProcedures[idx];
+      if (!existing.id) continue;
+      await medplum.updateResource(
+        withClinicIdentifiers({
+          ...existing,
+          status: 'entered-in-error',
+        } as Procedure, clinicId)
+      );
+    }
+  }
+
+  if (updates.prescriptions !== undefined) {
+    const existingMedications = sortByLastUpdatedAsc(medications as MedicationRequest[]);
+
+    for (let idx = 0; idx < updates.prescriptions.length; idx += 1) {
+      const rx = updates.prescriptions[idx];
+      const medicationCode = findMedicationByName(rx.medication.name);
+      const medicationCodeableConcept: any = {
+        text: `${rx.medication.name}${rx.medication.strength ? ` ${rx.medication.strength}` : ''}`,
+      };
+      if (medicationCode?.rxnorm) {
+        medicationCodeableConcept.coding = [
+          {
+            system: 'http://www.nlm.nih.gov/research/umls/rxnorm',
+            code: medicationCode.rxnorm.code,
+            display: medicationCode.rxnorm.display,
+          },
+        ];
+      }
+
+      const existing = existingMedications[idx];
+      if (existing?.id) {
+        await medplum.updateResource(
+          withClinicIdentifiers({
+            ...existing,
+            status: 'active',
+            intent: 'order',
+            medicationCodeableConcept,
+            dosageInstruction: [{ text: toDosageText(rx) }],
+            authoredOn: encounterDate,
+          } as MedicationRequest, clinicId)
+        );
+      } else {
+        await validateAndCreate<MedicationRequest>(medplum, withClinicIdentifiers({
+          resourceType: 'MedicationRequest',
+          status: 'active',
+          intent: 'order',
+          subject: { reference: patientReference },
+          encounter: { reference: `Encounter/${encounterId}` },
+          medicationCodeableConcept,
+          dosageInstruction: [{ text: toDosageText(rx) }],
+          authoredOn: encounterDate,
+        }, clinicId));
+      }
+    }
+
+    for (let idx = updates.prescriptions.length; idx < existingMedications.length; idx += 1) {
+      const existing = existingMedications[idx];
+      if (!existing.id) continue;
+      await medplum.updateResource(
+        withClinicIdentifiers({
+          ...existing,
+          status: 'stopped',
+        } as MedicationRequest, clinicId)
+      );
+    }
+  }
+
+  if (
+    updates.notes !== undefined ||
+    updates.progressNote !== undefined ||
+    updates.chiefComplaint !== undefined ||
+    updates.diagnosis !== undefined ||
+    updates.procedures !== undefined ||
+    updates.prescriptions !== undefined
+  ) {
+    const sections: any[] = [];
+    if (updates.chiefComplaint?.trim()) {
+      sections.push({
+        title: 'Chief Complaint',
+        code: { coding: [{ system: 'http://loinc.org', code: '10154-3', display: 'Chief complaint' }] },
+        text: toNarrative(updates.chiefComplaint.trim()),
+      });
+    }
+    if (updates.diagnosis?.trim()) {
+      sections.push({
+        title: 'Diagnoses',
+        code: { coding: [{ system: 'http://loinc.org', code: '29308-4', display: 'Diagnosis' }] },
+        text: toNarrative(updates.diagnosis.trim()),
+      });
+    }
+    if (updates.procedures && updates.procedures.length > 0) {
+      sections.push({
+        title: 'Procedures',
+        code: { coding: [{ system: 'http://loinc.org', code: '47519-4', display: 'History of Procedures' }] },
+        text: toNarrative(updates.procedures.map((p) => p.name).join('; ')),
+      });
+    }
+    if (updates.notes?.trim()) {
+      const soapParsed = parseSoapSections(updates.notes);
+      const hasSoapSections = SOAP_SECTION_ORDER.some((key) => soapParsed[key]);
+      if (hasSoapSections) {
+        for (const key of SOAP_SECTION_ORDER) {
+          const text = soapParsed[key];
+          if (!text) continue;
+          const title = key[0].toUpperCase() + key.slice(1);
+          const SOAP_LOINC: Record<string, { code: string; display: string }> = {
+            subjective: { code: '61150-9', display: 'Subjective' },
+            objective: { code: '61149-1', display: 'Objective' },
+            assessment: { code: '51848-0', display: 'Assessment' },
+            plan: { code: '18776-5', display: 'Plan of care' },
+          };
+          sections.push({
+            title,
+            code: { coding: [{ system: 'http://loinc.org', ...SOAP_LOINC[key] }] },
+            text: toNarrative(text),
+          });
+        }
+      } else {
+        sections.push({
+          title: 'Clinical Notes',
+          code: { coding: [{ system: 'http://loinc.org', code: '55752-0', display: 'Clinical information' }] },
+          text: toNarrative(updates.notes),
+        });
+      }
+    }
+    if (updates.progressNote?.trim() && updates.progressNote !== updates.notes) {
+      sections.push({
+        title: 'Progress Note',
+        code: { coding: [{ system: 'http://loinc.org', code: '11506-3', display: 'Progress note' }] },
+        text: toNarrative(updates.progressNote),
+      });
+    }
+
+    if (sections.length > 0) {
+      const compositionAuthor: { reference: string }[] = clinicId
+        ? [{ reference: `Organization/${clinicId}` }]
+        : [{ reference: patientReference }];
+
+      await validateAndCreate<Composition>(medplum, {
+        resourceType: 'Composition',
+        status: 'amended',
+        identifier: {
+          system: MY_CORE_IDENTIFIERS.COMPOSITION_ID,
+          value: `enc-${encounter.id}-${Date.now()}`,
+        },
+        type: {
+          coding: [{ system: 'http://loinc.org', code: '34133-9', display: 'Summary of episode note' }],
+        },
+        title: `Consultation Amendment — ${new Date().toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        subject: encounter.subject,
+        encounter: { reference: `Encounter/${encounterId}` },
+        date: new Date().toISOString(),
+        author: compositionAuthor,
+        custodian: clinicId ? { reference: `Organization/${clinicId}` } : undefined,
+        text: toNarrative(updates.notes || updates.diagnosis || 'Consultation amendment'),
+        section: sections,
+      } as any);
+    }
+  }
+
+  try {
+    await createProvenanceForResource(
+      'Encounter',
+      encounterId,
+      updates.practitionerId,
+      updates.organizationId || clinicId,
+      'UPDATE'
+    );
+  } catch (error) {
+    console.warn(`⚠️  Failed to create Provenance for consultation update (non-blocking):`, error);
+  }
+
+  return true;
+}
+
 /**
  * Get a consultation from Medplum by Encounter ID
  */
@@ -719,19 +1172,36 @@ export async function getConsultationFromMedplum(encounterId: string, clinicId?:
 
     const soapNote = latestComposition ? buildSoapNoteFromComposition(latestComposition as Composition) : null;
 
+    const activeProcedures = procedures.filter((proc) => (proc as any).status !== 'entered-in-error');
+    const activeMedications = medications.filter((med) => !['stopped', 'cancelled', 'entered-in-error'].includes((med as any).status || ''));
+    const updatedCandidates = [
+      encounter.meta?.lastUpdated,
+      ...conditions.map((res) => res.meta?.lastUpdated),
+      ...observations.map((res) => res.meta?.lastUpdated),
+      ...procedures.map((res) => res.meta?.lastUpdated),
+      ...medications.map((res) => res.meta?.lastUpdated),
+      ...compositions.map((res) => res.meta?.lastUpdated),
+    ].filter(Boolean) as string[];
+
+    const latestUpdated = updatedCandidates.length
+      ? new Date(Math.max(...updatedCandidates.map((value) => new Date(value).getTime())))
+      : undefined;
+
     return {
       id: encounter.id!,
       patientId,
       patientName: encounter.subject?.display,
       chiefComplaint: (chiefComplaint as any)?.valueString || '',
       diagnosis: conditions[0] ? ((conditions[0] as any).code?.text || '') : '',
-      notes: soapNote || (clinicalNotes as any)?.valueString,
+      // Prefer the explicit Clinical Notes observation; Composition SOAP is fallback only.
+      notes: (clinicalNotes as any)?.valueString || soapNote || '',
       progressNote: (progressNote as any)?.valueString,
-      procedures: procedures.map((proc) => ({
+      procedures: activeProcedures.map((proc) => ({
         name: (proc as any).code?.text || 'Procedure',
         price: 0,
+        notes: (proc as any).note?.map((n: any) => n?.text).filter(Boolean).join(' | ') || undefined,
       })),
-      prescriptions: medications.map((med) => ({
+      prescriptions: activeMedications.map((med) => ({
         medication: {
           id: med.id || '',
           name: (med as any).medicationCodeableConcept?.text || 'Medication',
@@ -741,7 +1211,8 @@ export async function getConsultationFromMedplum(encounterId: string, clinicId?:
         price: 0,
       })),
       date: encounter.period?.start ? new Date(encounter.period.start) : new Date(),
-      createdAt: encounter.meta?.lastUpdated ? new Date(encounter.meta.lastUpdated) : new Date(),
+      createdAt: encounter.period?.start ? new Date(encounter.period.start) : encounter.meta?.lastUpdated ? new Date(encounter.meta.lastUpdated) : new Date(),
+      updatedAt: latestUpdated,
     };
   } catch (error) {
     console.error('Failed to get consultation from Medplum:', error);

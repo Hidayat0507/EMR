@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Calendar, FileText, AlertCircle, User, Phone, Mail, Heart, Users, ClipboardList } from "lucide-react";
+import { FileText, AlertCircle, ClipboardList } from "lucide-react";
 import Link from "next/link";
 import { getPatientFromMedplum } from "@/lib/fhir/patient-service";
 import { getPatientConsultationsFromMedplum } from "@/lib/fhir/consultation-service";
-import { formatDisplayDate, calculateAge, safeToISOString } from "@/lib/utils";
+import { formatDisplayDate, safeToISOString } from "@/lib/utils";
 import ReferralMCSection from "./referral-mc-section";
 import { Suspense } from 'react';
 import { PatientCard } from "@/components/patients/patient-card";
@@ -74,8 +74,6 @@ export default async function PatientProfilePage({ params }: PatientProfilePageP
     queueAddedAt: safeToISOString(triageData.queueAddedAt ?? null),
   };
 
-  const patientAge = calculateAge(patient.dateOfBirth);
-
   // Serialize consultations data
   const consultations = consultationsData.map(consultation => ({
     ...consultation,
@@ -85,8 +83,7 @@ export default async function PatientProfilePage({ params }: PatientProfilePageP
 
   // Check for medical alerts based on INTERNAL data
   const hasAllergies = medicalHistory.allergies?.length > 0;
-  const hasConditions = medicalHistory.conditions?.length > 0;
-  const medicalAlert = hasAllergies || hasConditions;
+  const medicalAlert = hasAllergies;
 
   return (
     <div className="space-y-6">
@@ -117,26 +114,25 @@ export default async function PatientProfilePage({ params }: PatientProfilePageP
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Medical Alert</AlertTitle>
             <AlertDescription>
-            {hasAllergies && `Allergies: ${Array.isArray(medicalHistory.allergies) ? medicalHistory.allergies.join(', ') : medicalHistory.allergies}. `}
-            {hasConditions && `Conditions: ${Array.isArray(medicalHistory.conditions) ? medicalHistory.conditions.join(', ') : medicalHistory.conditions}.`}
+            {hasAllergies && `Allergies: ${Array.isArray(medicalHistory.allergies) ? medicalHistory.allergies.join(', ') : medicalHistory.allergies}.`}
             </AlertDescription>
           </Alert>
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
         {/* Internal Patient Card */}
-        <PatientCard patient={patient} />
+        <PatientCard patient={patient} compact />
 
         {/* Latest Vitals */}
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-1">
             <CardTitle className="text-sm font-medium">Latest Vitals</CardTitle>
             <CardDescription>From last triage (if available)</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 text-sm">
+          <CardContent className="grid grid-cols-2 gap-2 text-xs">
             <div>
               <p className="text-muted-foreground">BP</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {vitals?.bloodPressureSystolic && vitals?.bloodPressureDiastolic
                   ? `${vitals.bloodPressureSystolic}/${vitals.bloodPressureDiastolic} mmHg`
                   : "—"}
@@ -144,82 +140,55 @@ export default async function PatientProfilePage({ params }: PatientProfilePageP
             </div>
             <div>
               <p className="text-muted-foreground">HR</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {vitals?.heartRate ? `${vitals.heartRate} bpm` : "—"}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">RR</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {vitals?.respiratoryRate ? `${vitals.respiratoryRate} /min` : "—"}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Temp</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {vitals?.temperature ? `${vitals.temperature} °C` : "—"}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">SpO₂</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {vitals?.oxygenSaturation ? `${vitals.oxygenSaturation}%` : "—"}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Pain</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {typeof vitals?.painScore === "number" ? vitals.painScore : "—"}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Weight</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {vitals?.weight ? `${vitals.weight} kg` : "—"}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Height</p>
-              <p className="font-medium">
+              <p className="font-medium text-xs">
                 {vitals?.height ? `${vitals.height} cm` : "—"}
               </p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Last Visit Card (using internal data) */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-bold">Last Visit</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-lg font-bold">
-              {patient.lastVisit ? formatDisplayDate(patient.lastVisit) : 'N/A'}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Upcoming Appointment Card (using internal data) */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Upcoming Appointment</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-lg font-bold">
-              {patient.upcomingAppointment ? formatDisplayDate(patient.upcomingAppointment) : 'None'}
-            </div>
-            {/* Optionally add time if available */}
-          </CardContent>
-        </Card>
       </div>
 
       {/* Tabs Section */}
       <Tabs defaultValue="history">
         <TabsList>
           <TabsTrigger value="history">Consultation History</TabsTrigger>
-          <TabsTrigger value="details">Patient Details</TabsTrigger>
           <TabsTrigger value="labs-imaging">Labs & Imaging</TabsTrigger>
           <TabsTrigger value="referral-mc">Referral / MC</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -282,55 +251,6 @@ export default async function PatientProfilePage({ params }: PatientProfilePageP
               ) : (
                 <p className="text-muted-foreground">No consultation history found.</p>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Patient Details Tab */}
-        <TabsContent value="details">
-          <Card>
-            <CardHeader>
-              <CardTitle>Contact & Personal Information</CardTitle>
-            </CardHeader>
-            <CardContent className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center">
-                  <Mail className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span>{patient.email}</span>
-                </div>
-                <div className="flex items-center">
-                  <Phone className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span>{patient.phone}</span>
-                </div>
-                <div className="flex items-center">
-                  <User className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span>
-                    {patient.gender} | Age: {patientAge !== null ? patientAge : "N/A"}
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="font-medium">Address</p>
-                <p className="text-muted-foreground">
-                  {patient.address}<br />
-                  {patient.postalCode}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <p className="font-medium">Emergency Contact</p>
-                <div className="text-muted-foreground">
-                  <p>{patient.emergencyContact?.name} ({patient.emergencyContact?.relationship})</p>
-                  <p>{patient.emergencyContact?.phone}</p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="font-medium">Medical History</p>
-                <ul className="list-disc list-inside text-muted-foreground">
-                  <li>Allergies: {Array.isArray(medicalHistory.allergies) && medicalHistory.allergies.length > 0 ? medicalHistory.allergies.join(', ') : 'None'}</li>
-                  <li>Conditions: {Array.isArray(medicalHistory.conditions) && medicalHistory.conditions.length > 0 ? medicalHistory.conditions.join(', ') : 'None'}</li>
-                  <li>Medications: {Array.isArray(medicalHistory.medications) && medicalHistory.medications.length > 0 ? medicalHistory.medications.join(', ') : 'None'}</li>
-                </ul>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>

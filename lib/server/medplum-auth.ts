@@ -7,10 +7,57 @@ import { MedplumClient, type ProfileResource } from '@medplum/core';
 import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { AUTH_DISABLED } from '@/lib/auth-config';
+import { deriveClinicFromHost } from '@/lib/server/clinic';
 
 const MEDPLUM_BASE_URL = process.env.MEDPLUM_BASE_URL || 'http://localhost:8103';
 const MEDPLUM_CLIENT_ID = process.env.MEDPLUM_CLIENT_ID;
 const MEDPLUM_CLIENT_SECRET = process.env.MEDPLUM_CLIENT_SECRET;
+const CLINIC_IDENTIFIER_SYSTEM = 'clinic';
+const isProd = process.env.NODE_ENV === 'production';
+
+async function ensureClinicAccess(medplum: MedplumClient, profile: ProfileResource, req?: NextRequest): Promise<void> {
+  if (!req) return;
+
+  const clinicId = deriveClinicFromHost(req.headers.get('host'));
+  if (!clinicId) return;
+
+  // Avoid lockouts in development while clinic memberships are being configured.
+  if (!isProd) return;
+
+  const profileRef = `${profile.resourceType}/${profile.id}`;
+  if (profile.resourceType === 'Patient') {
+    const patient = await medplum.readResource('Patient', profile.id as string);
+    const inClinic = Boolean(
+      patient.identifier?.some((id: any) => id.system === CLINIC_IDENTIFIER_SYSTEM && id.value === clinicId) ||
+      patient.managingOrganization?.reference === `Organization/${clinicId}`
+    );
+    if (!inClinic) {
+      throw new Error('Forbidden: Not authorized for this clinic');
+    }
+    return;
+  }
+
+  if (profile.resourceType !== 'Practitioner') {
+    throw new Error('Forbidden: Unsupported profile type for clinic access');
+  }
+
+  const practitioner = await medplum.readResource('Practitioner', profile.id as string);
+  const practitionerTaggedToClinic = Boolean(
+    practitioner.identifier?.some((id: any) => id.system === CLINIC_IDENTIFIER_SYSTEM && id.value === clinicId)
+  );
+  if (practitionerTaggedToClinic) return;
+
+  // Primary clinic association check for practitioners.
+  const roles = await medplum.searchResources('PractitionerRole', {
+    practitioner: profileRef,
+    organization: `Organization/${clinicId}`,
+    _count: 1,
+  });
+
+  if (roles.length > 0) return;
+
+  throw new Error('Forbidden: Not authorized for this clinic');
+}
 
 /**
  * Get authenticated Medplum client for the current user
@@ -50,8 +97,15 @@ export async function getMedplumForRequest(req?: NextRequest): Promise<MedplumCl
 
   // Verify token is valid by fetching profile
   try {
-    await medplum.getProfile();
+    const profile = await medplum.getProfileAsync();
+    if (!profile) {
+      throw new Error('No Medplum profile available');
+    }
+    await ensureClinicAccess(medplum, profile, req);
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Forbidden:')) {
+      throw error;
+    }
     throw new Error('Invalid or expired access token');
   }
 
@@ -135,6 +189,9 @@ export async function requireAuth(req?: NextRequest): Promise<MedplumClient> {
   try {
     return await getMedplumForRequest(req);
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Forbidden:')) {
+      throw error;
+    }
     throw new Error('Authentication required');
   }
 }
@@ -149,8 +206,6 @@ export async function optionalAuth(req?: NextRequest): Promise<MedplumClient | n
     return null;
   }
 }
-
-
 
 
 

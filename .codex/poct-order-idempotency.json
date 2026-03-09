@@ -1,0 +1,18 @@
+{
+  "poct-e2e-idem-1": {
+    "createdAt": "2026-02-26T14:28:07.831Z",
+    "response": {
+      "success": true,
+      "id": "2ee73c98-cb3c-4c50-b3b8-6025be0efcc5",
+      "syncedAt": "2026-02-26T14:28:07.831Z"
+    }
+  },
+  "ad07015b-cef0-4f5b-bf24-11dc9997cced": {
+    "createdAt": "2026-02-26T14:27:28.055Z",
+    "response": {
+      "success": true,
+      "id": "12d5ad49-7778-4f15-9b56-fd069ca27c70",
+      "syncedAt": "2026-02-26T14:27:28.055Z"
+    }
+  }
+}
